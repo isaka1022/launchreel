@@ -15,7 +15,7 @@ import { designReel, type DesignResult } from './understand/m3.js';
 import { synthesizeLines, type SpeechProvider, type SynthesizedLine } from './order/speech.js';
 import { generateTracks, type GeneratedTrack } from './order/music.js';
 import { CACHE_DIR_NAME } from './order/media.js';
-import { runAnalyze } from './drivers/python.js';
+import { analyzeTrack } from './order/analysis.js';
 import { chooseBestTrack, scoreTrack, snapReel, type TrackAnalysis, type TrackScore } from './timeline/snap.js';
 import { renderShots } from './render/index.js';
 
@@ -315,7 +315,7 @@ async function scoreReel(reel: Reel, options: ScoreOptions): Promise<ScoreResult
   const candidates: ScoredCandidate[] = [];
   for (let i = 0; i < tracks.length; i++) {
     const track = tracks[i]!;
-    const analysis = await runAnalyze(track.path);
+    const analysis = await analyzeTrack(track.path, options.offline ?? false);
     candidates.push({ index: i + 1, track, analysis, score: scoreTrack(reel.hitPoints, analysis) });
   }
 
