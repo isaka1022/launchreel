@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 import { execFile } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -149,6 +149,33 @@ async function gate5(offline: boolean): Promise<GateResult> {
   }
 }
 
+/**
+ * The published binary is reached through a symlink in node_modules/.bin, which is not the path
+ * the module sees itself at. Getting that comparison wrong makes `npx launchreel` exit 0 having
+ * done nothing — silent, and invisible to the unit tests, which import main() directly.
+ */
+async function gate6(): Promise<GateResult> {
+  const name = 'G6 cli — the published binary runs when reached through a symlink';
+  const dir = mkdtempSync(join(tmpdir(), 'launchreel-gate-g6-'));
+  try {
+    await execFileAsync('npm', ['run', 'build'], { cwd: repoRoot });
+    const built = join(repoRoot, 'dist', 'cli.js');
+    chmodSync(built, 0o755);
+    const link = join(dir, 'launchreel');
+    symlinkSync(built, link);
+
+    const { stdout } = await execFileAsync(link, ['ingest', join(selfDir, 'demo.cast')], { cwd: repoRoot });
+    if (stdout.trim().length === 0) {
+      return { name, ok: false, detail: 'the binary produced no output — main() did not run' };
+    }
+    return { name, ok: true, detail: `ran through ${link.replace(dir, '<tmp>')} and produced output` };
+  } catch (err) {
+    return { name, ok: false, detail: errMessage(err) };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 async function runGate(): Promise<void> {
   const { values } = parseArgs({
     args: process.argv.slice(2),
@@ -162,6 +189,7 @@ async function runGate(): Promise<void> {
   results.push(await gate3());
   results.push(await gate4(offline));
   results.push(await gate5(offline));
+  results.push(await gate6());
 
   let allOk = true;
   for (const result of results) {

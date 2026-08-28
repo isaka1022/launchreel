@@ -13,8 +13,8 @@ them, and moves the cuts to the beats it actually finds.**
 
 ```bash
 git clone https://github.com/isaka1022/launchreel && cd launchreel
-npm install
-npx tsx src/cli.ts build examples/self --offline
+npm install && npm run build
+npx launchreel build examples/self --offline
 ```
 
 No API key, no network, no Python. That command replays committed fixtures and writes
