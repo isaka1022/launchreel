@@ -1,0 +1,101 @@
+{
+  "version": "launchreel/1",
+  "title": "LaunchReel — from a terminal recording to an editable timeline",
+  "fps": 30,
+  "shots": [
+    {
+      "id": "s01_hook",
+      "kind": "card",
+      "durationSec": 4,
+      "label": "Title card",
+      "card": {
+        "title": "LaunchReel",
+        "subtitle": "Your terminal recording, as an editable timeline"
+      }
+    },
+    {
+      "id": "s02_record",
+      "kind": "terminal",
+      "durationSec": 8,
+      "label": "Recording the demo with vhs",
+      "evidenceRange": [
+        0,
+        8
+      ]
+    },
+    {
+      "id": "s03_plan",
+      "kind": "terminal",
+      "durationSec": 7,
+      "label": "M3 reads the cast and designs the timeline",
+      "evidenceRange": [
+        8,
+        15
+      ]
+    },
+    {
+      "id": "s04_otio",
+      "kind": "screencast",
+      "durationSec": 9,
+      "label": "Dropping the .otio into DaVinci Resolve",
+      "evidenceRange": [
+        0,
+        9
+      ]
+    },
+    {
+      "id": "s05_close",
+      "kind": "card",
+      "durationSec": 5,
+      "label": "Closing card with the install command",
+      "card": {
+        "title": "Try it",
+        "subtitle": "MIT licensed",
+        "command": "npx launchreel build demo.cast"
+      }
+    }
+  ],
+  "narration": [
+    {
+      "id": "vo_01",
+      "shotId": "s01_hook",
+      "text": "You shipped something. Now you need a video about it."
+    },
+    {
+      "id": "vo_02",
+      "shotId": "s02_record",
+      "text": "Record your terminal the way you already do — with vhs or asciinema."
+    },
+    {
+      "id": "vo_03",
+      "shotId": "s03_plan",
+      "text": "LaunchReel reads the recording, works out what actually happened, and designs a timeline around it."
+    },
+    {
+      "id": "vo_04",
+      "shotId": "s04_otio",
+      "text": "You get an mp4. You also get the timeline itself, which opens in Resolve, Premiere, or Final Cut."
+    },
+    {
+      "id": "vo_05",
+      "shotId": "s05_close",
+      "text": "Every clip carries the prompt and model that made it, so a re-edit knows where it came from."
+    }
+  ],
+  "music": {
+    "caption": "Restrained electronic underscore for a developer tool launch. Warm analog pads, muted plucks, no drums until the midpoint, then a soft four-on-the-floor. Confident, not triumphant.",
+    "structureTags": [
+      "[Intro]",
+      "[Build]",
+      "[Drop]",
+      "[Outro]"
+    ],
+    "targetDurationSec": 33
+  },
+  "hitPoints": [
+    4,
+    12,
+    19,
+    28
+  ]
+}

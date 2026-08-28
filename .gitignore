@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.venv/
+.launchreel/
+*.log
+.DS_Store

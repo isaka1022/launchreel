@@ -1,0 +1,11 @@
+{"version": 2, "width": 80, "height": 24, "timestamp": 1712000000, "title": "launchreel demo"}
+[0.1, "o", "$ npm install\r\n"]
+[0.4, "o", "added 42 packages in 1.2s\r\n"]
+[0.6, "m", "install done"]
+[0.7, "o", "$ npm run build\r\n"]
+[0.9, "o", "\u001b[36mBuilding\u001b[0m\r"]
+[1.0, "o", "\u001b[36mBuilding.\u001b[0m\r"]
+[1.1, "o", "\u001b[36mBuilding..\u001b[0m\r"]
+[1.2, "o", "\u001b[32mBuild succeeded\u001b[0m\r\n"]
+[3.0, "o", "$ echo done\r\n"]
+[3.1, "o", "done\r\n"]
