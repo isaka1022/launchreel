@@ -1,13 +1,13 @@
 {
   "name": "launchreel",
   "version": "0.1.0",
-  "description": "Turn a terminal recording or repo into a launch video — with an editable OpenTimelineIO timeline, not just an mp4.",
+  "description": "Turn a terminal recording or repo into a launch video \u2014 with an editable OpenTimelineIO timeline, not just an mp4.",
   "type": "module",
   "bin": {
     "launchreel": "./dist/cli.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "test": "vitest run",
     "cli": "tsx src/cli.ts",
     "gate": "tsx scripts/gate.ts",

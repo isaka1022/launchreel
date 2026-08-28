@@ -61,7 +61,12 @@ const DEFAULT_MUSIC_CANDIDATES = 3;
 
 const EVIDENCE_KIND_ORDER: EvidenceKind[] = ['command', 'output', 'pause', 'annotation'];
 
-export async function main(argv: string[]): Promise<CommandResult> {
+/** Long-running commands stream their progress through this instead of returning it at the end. */
+export interface RunOptions {
+  log?: (line: string) => void;
+}
+
+export async function main(argv: string[], options: RunOptions = {}): Promise<CommandResult> {
   const [cmd, ...rest] = argv;
   if (cmd === undefined) return { stdout: '', stderr: USAGE, exitCode: 1 };
   if (cmd === '-h' || cmd === '--help') return { stdout: USAGE, stderr: '', exitCode: 0 };
@@ -71,7 +76,7 @@ export async function main(argv: string[]): Promise<CommandResult> {
   if (cmd === 'narrate') return runNarrate(rest);
   if (cmd === 'score') return runScore(rest);
   if (cmd === 'emit') return runEmit(rest);
-  if (cmd === 'build') return runBuild(rest);
+  if (cmd === 'build') return runBuild(rest, options);
   return { stdout: '', stderr: `unknown command "${cmd}"\n\n${USAGE}`, exitCode: 1 };
 }
 
@@ -375,7 +380,7 @@ export function runEmit(argv: string[]): CommandResult {
   }
 }
 
-export async function runBuild(argv: string[]): Promise<CommandResult> {
+export async function runBuild(argv: string[], options: RunOptions = {}): Promise<CommandResult> {
   try {
     const { values, positionals } = parseArgs({
       args: argv,
@@ -417,13 +422,19 @@ export async function runBuild(argv: string[]): Promise<CommandResult> {
     if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
 
     const stages: string[] = [];
+    const stage = (line: string): void => {
+      stages.push(line);
+      options.log?.(`  ${line}`);
+    };
+    options.log?.(`build: ${outDir}`);
+
     const recording = readRecording(recordingFile);
 
     const design = await designReel(recording, { targetDurationSec, language: lang, cacheDir, offline });
     const designedReel = design.reel;
     let reel = designedReel;
     const attemptWord = design.attempts.length === 1 ? 'attempt' : 'attempts';
-    stages.push(`plan: ${plural(reel.shots.length, 'shot')} designed in ${design.attempts.length} ${attemptWord}`);
+    stage(`plan: ${plural(reel.shots.length, 'shot')} designed in ${design.attempts.length} ${attemptWord}`);
 
     let synthesized = await synthesizeLines(reel.narration, {
       provider,
@@ -433,12 +444,12 @@ export async function runBuild(argv: string[]): Promise<CommandResult> {
     });
     let fit = fitReel(reel, { availableSec: footageByShot(reel), measured: measuredFrom(synthesized) });
     reel = fit.reel;
-    stages.push(`narrate: ${plural(synthesized.length, 'line')} synthesized (${provider}), total ${formatSec(fit.report.totalDurationSec)}s`);
+    stage(`narrate: ${plural(synthesized.length, 'line')} synthesized (${provider}), total ${formatSec(fit.report.totalDurationSec)}s`);
 
     const rewrites: RewriteRecord[] = [];
     if (fit.report.needsRewrite) {
       if (offline) {
-        stages.push(`rewrite: skipped (offline), ${plural(countTier(fit.report, 'needs-rewrite'), 'line')} still over budget`);
+        stage(`rewrite: skipped (offline), ${plural(countTier(fit.report, 'needs-rewrite'), 'line')} still over budget`);
       } else {
         try {
           const requests = fit.report.lines
@@ -466,16 +477,16 @@ export async function runBuild(argv: string[]): Promise<CommandResult> {
 
           fit = fitReel(rewrittenReel, { availableSec: footageByShot(rewrittenReel), measured: measuredFrom(synthesized) });
           reel = fit.reel;
-          stages.push(`rewrite: ${plural(rewrites.length, 'line')} shortened via M3, total ${formatSec(fit.report.totalDurationSec)}s`);
+          stage(`rewrite: ${plural(rewrites.length, 'line')} shortened via M3, total ${formatSec(fit.report.totalDurationSec)}s`);
         } catch (err) {
-          stages.push(`rewrite: skipped (${errMessage(err)})`);
+          stage(`rewrite: skipped (${errMessage(err)})`);
         }
       }
     }
 
     if (fit.report.needsRewrite) {
       fit = { reel: fit.reel, report: compressToFit(fit.report, DEFAULT_MAX_ATEMPO) };
-      stages.push(`compress: atempo applied (max ${DEFAULT_MAX_ATEMPO}x), ${plural(countTier(fit.report, 'compressed'), 'line')} compressed`);
+      stage(`compress: atempo applied (max ${DEFAULT_MAX_ATEMPO}x), ${plural(countTier(fit.report, 'compressed'), 'line')} compressed`);
     }
 
     let musicPath: string | undefined;
@@ -484,16 +495,16 @@ export async function runBuild(argv: string[]): Promise<CommandResult> {
       scoreResult = await scoreReel(reel, { outDir: join(cacheDir, 'music'), count: DEFAULT_MUSIC_CANDIDATES, offline });
       reel = scoreResult.reel;
       musicPath = scoreResult.selected.track.path;
-      stages.push(
+      stage(
         `score: ${plural(scoreResult.candidates.length, 'candidate')}, selected track ${scoreResult.selected.index} ` +
           `(${scoreResult.selected.score.hits}/${scoreResult.selected.score.total} hits)`,
       );
     } else {
-      stages.push('score: skipped');
+      stage('score: skipped');
     }
 
     const rendered = await renderShots(reel, { castPath: recordingFile, outDir: join(outDir, 'shots'), fps: reel.fps });
-    stages.push(`render: ${plural(reel.shots.length, 'shot')} rendered`);
+    stage(`render: ${plural(reel.shots.length, 'shot')} rendered`);
 
     const narrationAt = new Map(fit.report.lines.map((l) => [l.lineId, l.atSec]));
     const atempoByLine = atempoByLineId(fit.report.lines);
@@ -507,7 +518,7 @@ export async function runBuild(argv: string[]): Promise<CommandResult> {
       outPath: mp4Path,
       fps: reel.fps,
     });
-    stages.push(`assemble: ${formatSec(assembled.durationSec)}s -> ${basename(mp4Path)}`);
+    stage(`assemble: ${formatSec(assembled.durationSec)}s -> ${basename(mp4Path)}`);
 
     const shotMedia = new Map(reel.shots.map((s) => [s.id, requireRendered(rendered, s.id).path]));
     const narrationMedia = new Map(synthesized.map((s) => [s.lineId, s.path]));
@@ -515,7 +526,7 @@ export async function runBuild(argv: string[]): Promise<CommandResult> {
     const otioPath = join(outDir, 'reel.otio');
     const doc = buildOtio(reel, { media: { shotMedia, narrationMedia, musicMedia: musicPath }, narrationAt, narrationDuration });
     writeFileSync(otioPath, otioToJson(doc));
-    stages.push(`emit: ${basename(otioPath)}`);
+    stage(`emit: ${basename(otioPath)}`);
 
     const reelPath = join(outDir, 'reel.json');
     writeFileSync(reelPath, `${JSON.stringify(reel, null, 2)}\n`);
@@ -523,7 +534,7 @@ export async function runBuild(argv: string[]): Promise<CommandResult> {
     const report = buildReport(reel, design, fit.report, rewrites, scoreResult, assembled, mp4Path, otioPath, reelPath, provider);
     writeFileSync(join(outDir, 'reel.report.json'), `${JSON.stringify(report, null, 2)}\n`);
 
-    return { stdout: '', stderr: buildSummary(outDir, stages), exitCode: 0 };
+    return { stdout: '', stderr: options.log ? '' : buildSummary(outDir, stages), exitCode: 0 };
   } catch (err) {
     return errorResult(errMessage(err));
   }
@@ -833,7 +844,7 @@ function isMainModule(): boolean {
 }
 
 if (isMainModule()) {
-  main(process.argv.slice(2)).then((result) => {
+  main(process.argv.slice(2), { log: (line) => process.stderr.write(`${line}\n`) }).then((result) => {
     if (result.stdout.length > 0) process.stdout.write(result.stdout);
     if (result.stderr.length > 0) process.stderr.write(result.stderr);
     process.exit(result.exitCode);
