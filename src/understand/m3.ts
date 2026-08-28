@@ -1,5 +1,8 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { chatCompletion, type ChatResponse, type ToolCall } from '../drivers/gmi.js';
 import type { Recording } from '../ingest/types.js';
+import { cacheKey } from '../order/media.js';
 import { formatZodIssues } from '../report.js';
 import { reelSchema, type Reel, validateAgainstRecording, validateReel } from '../timeline/schema.js';
 import { buildMessages, buildToolSchema } from './prompt.js';
@@ -22,6 +25,10 @@ export interface DesignOptions {
   maxRepairs?: number;
   baseUrl?: string;
   timeoutMs?: number;
+  /** Directory to read/write a cached design result. Keyed on the recording + these options. */
+  cacheDir?: string;
+  /** When true, a cache miss is a readable error instead of a network call — for reproducible offline runs. */
+  offline?: boolean;
 }
 
 export interface DesignAttempt {
@@ -42,6 +49,20 @@ export async function designReel(recording: Recording, options: DesignOptions = 
   const language = options.language ?? 'en';
   const allowGenerated = options.allowGenerated ?? false;
   const maxRepairs = options.maxRepairs ?? DEFAULT_MAX_REPAIRS;
+
+  const cachePath =
+    options.cacheDir !== undefined
+      ? join(options.cacheDir, `plan-${cacheKey([recording, targetDurationSec, language, allowGenerated])}.json`)
+      : undefined;
+
+  if (cachePath !== undefined && existsSync(cachePath)) {
+    return readCachedDesign(cachePath);
+  }
+  if (options.offline === true) {
+    throw new Error(
+      `--offline: no cached plan at ${cachePath ?? '(no cacheDir given)'}. Run once without --offline to populate the cache.`,
+    );
+  }
 
   const tools = [
     {
@@ -74,7 +95,9 @@ export async function designReel(recording: Recording, options: DesignOptions = 
 
     if (result.reel !== undefined) {
       attempts.push({ attempt, problems: [], usage });
-      return { reel: result.reel, attempts };
+      const designResult: DesignResult = { reel: result.reel, attempts };
+      if (cachePath !== undefined) writeCachedDesign(cachePath, designResult);
+      return designResult;
     }
 
     attempts.push({ attempt, problems: result.problems, usage });
@@ -130,6 +153,24 @@ function extractReel(response: ChatResponse, recording: Recording): ExtractResul
   }
 
   return { reel: parsed.data, problems: [], toolCall };
+}
+
+interface CachedDesign {
+  reel: Reel;
+  attempts: DesignAttempt[];
+}
+
+function readCachedDesign(path: string): DesignResult {
+  const raw = JSON.parse(readFileSync(path, 'utf8')) as CachedDesign;
+  const parsed = reelSchema.safeParse(raw.reel);
+  if (!parsed.success) throw new Error(`cached plan at ${path} is invalid:\n${formatZodIssues(parsed.error)}`);
+  return { reel: parsed.data, attempts: raw.attempts };
+}
+
+function writeCachedDesign(path: string, result: DesignResult): void {
+  const dir = dirname(path);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  writeFileSync(path, `${JSON.stringify(result, null, 2)}\n`);
 }
 
 function formatProblems(problems: string[]): string {

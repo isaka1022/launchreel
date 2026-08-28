@@ -3,6 +3,13 @@ import { writeFileSync } from 'node:fs';
 
 /** Shared helpers for order/*: a stable cache key from request content, and saving a queue result to disk. */
 
+/**
+ * Sits next to the recording and is meant to be committed alongside it, so `--offline` is
+ * reproducible for anyone who clones the project. Deliberately not named `.cache`: that name is
+ * swept by cleanup tools and by common global gitignore rules.
+ */
+export const CACHE_DIR_NAME = 'launchreel-cache';
+
 export function cacheKey(parts: unknown[]): string {
   return createHash('sha256').update(JSON.stringify(parts)).digest('hex').slice(0, 12);
 }

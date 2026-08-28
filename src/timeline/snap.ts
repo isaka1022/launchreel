@@ -20,8 +20,13 @@ export interface Alignment {
   hitPoint: number;
   /** The beat we snapped to, if one was close enough. */
   beat?: number;
-  /** Seconds we had to move to reach it. Positive = later. */
+  /** Distance from the hit point to that beat. Positive = the beat is later. */
   shiftSec?: number;
+  /**
+   * Set by `snapReel`: true when the cut was actually moved onto the beat. A hit within
+   * tolerance is already on the beat, so it lands without the timeline being disturbed.
+   */
+  moved?: boolean;
 }
 
 export interface TrackScore {
@@ -146,5 +151,6 @@ export function snapReel(reel: Reel, analysis: TrackAnalysis, options: SnapOptio
   });
 
   const newReel: Reel = { ...reel, shots: newShots, hitPoints: newHitPoints };
-  return { reel: newReel, score };
+  const alignments = score.alignments.map((a, index) => ({ ...a, moved: movedIndices.has(index) }));
+  return { reel: newReel, score: { ...score, alignments } };
 }

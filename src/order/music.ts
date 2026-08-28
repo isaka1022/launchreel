@@ -20,6 +20,8 @@ export interface MusicOptions {
   count?: number;
   format?: 'wav' | 'mp3';
   sampleRate?: number;
+  /** When true, a cache miss (no file at the deterministic outDir path) is a readable error instead of generating. */
+  offline?: boolean;
   onProgress?: (index: number, total: number) => void;
 }
 
@@ -30,19 +32,37 @@ export interface GeneratedTrack {
   prompt?: string;
 }
 
+/**
+ * Music 3.0 has no seed parameter, so identical requests give us nothing to choose between.
+ * Each candidate varies the one dimension that actually moves the beat grid: when the pulse
+ * arrives and how dense it is. A track whose intro is eleven seconds of pads cannot serve an
+ * early hit point, and only generating an alternative gives the measurement a real choice.
+ */
+const CANDIDATE_DIRECTIONS = [
+  '',
+  ' Percussion enters within the first bar, no ambient intro.',
+  ' Faster, denser pulse with a steady driving beat throughout.',
+];
+
 export async function generateTracks(spec: MusicSpec, options: MusicOptions): Promise<GeneratedTrack[]> {
   const count = options.count ?? 3;
   const format = options.format ?? 'wav';
   const sampleRate = options.sampleRate ?? 44100;
   if (!existsSync(options.outDir)) mkdirSync(options.outDir, { recursive: true });
 
-  const lyrics = buildInstrumentalLyrics(spec);
   const tracks: GeneratedTrack[] = [];
   for (let i = 0; i < count; i++) {
-    tracks.push(await generateOneTrack(spec, lyrics, format, sampleRate, i, options.outDir));
+    const variant = candidateSpec(spec, i);
+    const lyrics = buildInstrumentalLyrics(variant);
+    tracks.push(await generateOneTrack(variant, lyrics, format, sampleRate, i, options.outDir, options.offline ?? false));
     options.onProgress?.(i + 1, count);
   }
   return tracks;
+}
+
+function candidateSpec(spec: MusicSpec, index: number): MusicSpec {
+  const direction = CANDIDATE_DIRECTIONS[index % CANDIDATE_DIRECTIONS.length] ?? '';
+  return direction === '' ? spec : { ...spec, caption: `${spec.caption}${direction}` };
 }
 
 /**
@@ -67,10 +87,14 @@ async function generateOneTrack(
   sampleRate: number,
   index: number,
   outDir: string,
+  offline: boolean,
 ): Promise<GeneratedTrack> {
   const path = join(outDir, `track-${index}-${cacheKey([lyrics, spec.caption, format, sampleRate, index])}.${format}`);
   if (existsSync(path)) {
     return { path, durationSec: await probeDurationSec(path), lyrics, prompt: spec.caption };
+  }
+  if (offline) {
+    throw new Error(`--offline: no cached music candidate at ${path}. Run once without --offline to populate the cache.`);
   }
 
   const payload: Record<string, unknown> = { lyrics, prompt: spec.caption, format, sample_rate: sampleRate };

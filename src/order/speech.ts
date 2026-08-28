@@ -40,6 +40,8 @@ export interface SpeechOptions {
   outDir: string;
   /** Per-line speed, keyed by line id. Comes from fit's `compressed` tier. */
   speedByLine?: Map<string, number>;
+  /** When true, a cache miss (no file at the deterministic outDir path) is a readable error instead of synthesizing. */
+  offline?: boolean;
   onProgress?: (lineId: string, index: number, total: number) => void;
 }
 
@@ -66,8 +68,8 @@ export async function synthesizeLines(lines: NarrationLine[], options: SpeechOpt
 
     const result =
       provider === 'minimax'
-        ? await synthesizeMinimax(line, voiceId, speed, options.outDir)
-        : await synthesizeSystem(line, voiceId, speed, options.outDir);
+        ? await synthesizeMinimax(line, voiceId, speed, options.outDir, options.offline ?? false)
+        : await synthesizeSystem(line, voiceId, speed, options.outDir, options.offline ?? false);
 
     results.push(result);
     options.onProgress?.(line.id, i + 1, lines.length);
@@ -84,10 +86,14 @@ async function synthesizeMinimax(
   voiceId: string,
   speed: number | undefined,
   outDir: string,
+  offline: boolean,
 ): Promise<SynthesizedLine> {
   const path = join(outDir, `${line.id}-${cacheKey([line.text, voiceId, speed])}.mp3`);
   if (existsSync(path)) {
     return { lineId: line.id, path, durationSec: await probeDurationSec(path), provider: 'minimax', voiceId, speed };
+  }
+  if (offline) {
+    throw new Error(`--offline: no cached narration at ${path}. Run once without --offline to populate the cache.`);
   }
 
   const payload: Record<string, unknown> = { text: line.text, voice_id: voiceId, format: 'mp3' };
@@ -107,14 +113,17 @@ async function synthesizeSystem(
   voiceId: string,
   speed: number | undefined,
   outDir: string,
+  offline: boolean,
 ): Promise<SynthesizedLine> {
-  if (process.platform !== 'darwin') {
-    throw new Error('speech provider "system" requires macOS `say` and is not available on this platform');
-  }
-
   const path = join(outDir, `${line.id}-${cacheKey([line.text, voiceId, speed])}.aiff`);
   if (existsSync(path)) {
     return { lineId: line.id, path, durationSec: await probeDurationSec(path), provider: 'system', voiceId, speed };
+  }
+  if (offline) {
+    throw new Error(`--offline: no cached narration at ${path}. Run once without --offline to populate the cache.`);
+  }
+  if (process.platform !== 'darwin') {
+    throw new Error('speech provider "system" requires macOS `say` and is not available on this platform');
   }
 
   const args = ['-v', voiceId, '-o', path];

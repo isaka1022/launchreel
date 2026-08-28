@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync } from 'node:fs';
-import { basename, extname } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { basename, dirname, extname, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import { parseCast } from './ingest/cast.js';
@@ -9,9 +9,15 @@ import type { Evidence, EvidenceKind, Recording } from './ingest/types.js';
 import { reelSchema, totalDurationSec, validateReel, type Reel } from './timeline/schema.js';
 import { compressToFit, fitReel, type FitReport, type FitTier } from './timeline/fit.js';
 import { buildOtio, otioToJson } from './emit/otio.js';
+import { assembleReel } from './emit/assemble.js';
 import { formatZodIssues } from './report.js';
 import { designReel, type DesignResult } from './understand/m3.js';
 import { synthesizeLines, type SpeechProvider, type SynthesizedLine } from './order/speech.js';
+import { generateTracks, type GeneratedTrack } from './order/music.js';
+import { CACHE_DIR_NAME } from './order/media.js';
+import { runAnalyze } from './drivers/python.js';
+import { chooseBestTrack, scoreTrack, snapReel, type TrackAnalysis, type TrackScore } from './timeline/snap.js';
+import { renderShots } from './render/index.js';
 
 /**
  * CLI entry point. Each subcommand's logic lives in a pure `run*` function (argv in,
@@ -31,7 +37,9 @@ Usage:
   launchreel plan <recording.json|.cast|.tape> [-o <out.json>] [--duration <sec>] [--lang en|ja] [--allow-generated]
   launchreel fit <reel.json> [-o <out.json>] [--report <report.json>] [--compress]
   launchreel narrate <reel.json> [-o <out.json>] [--provider minimax|system] [--lang en|ja] [--out-dir <dir>]
+  launchreel score <reel.json> [-o <out.json>] [--candidates <n>] [--out-dir <dir>] [--offline]
   launchreel emit <reel.json> [--otio <out.otio>] [--fps <n>]
+  launchreel build <recording.cast|.tape|dir> [-o <out-dir>] [--duration <sec>] [--lang en|ja] [--provider minimax|system] [--offline] [--skip-music]
   launchreel --help
 `;
 
@@ -41,8 +49,14 @@ const USAGE_PLAN =
 const USAGE_FIT = 'usage: launchreel fit <reel.json> [-o <out.json>] [--report <report.json>] [--compress]';
 const USAGE_NARRATE =
   'usage: launchreel narrate <reel.json> [-o <out.json>] [--provider minimax|system] [--lang en|ja] [--out-dir <dir>]';
+const USAGE_SCORE = 'usage: launchreel score <reel.json> [-o <out.json>] [--candidates <n>] [--out-dir <dir>] [--offline]';
 const USAGE_EMIT = 'usage: launchreel emit <reel.json> [--otio <out.otio>] [--fps <n>]';
+const USAGE_BUILD =
+  'usage: launchreel build <recording.cast|.tape|dir> [-o <out-dir>] [--duration <sec>] [--lang en|ja] [--provider minimax|system] [--offline] [--skip-music]';
 const DEFAULT_NARRATE_OUT_DIR = '.launchreel/vo';
+const DEFAULT_MUSIC_OUT_DIR = '.launchreel/music';
+const DEFAULT_BUILD_OUT_DIR = '.launchreel/build';
+const DEFAULT_MUSIC_CANDIDATES = 3;
 
 const EVIDENCE_KIND_ORDER: EvidenceKind[] = ['command', 'output', 'pause', 'annotation'];
 
@@ -54,7 +68,9 @@ export async function main(argv: string[]): Promise<CommandResult> {
   if (cmd === 'plan') return runPlan(rest);
   if (cmd === 'fit') return runFit(rest);
   if (cmd === 'narrate') return runNarrate(rest);
+  if (cmd === 'score') return runScore(rest);
   if (cmd === 'emit') return runEmit(rest);
+  if (cmd === 'build') return runBuild(rest);
   return { stdout: '', stderr: `unknown command "${cmd}"\n\n${USAGE}`, exitCode: 1 };
 }
 
@@ -223,6 +239,110 @@ export async function runNarrate(argv: string[]): Promise<CommandResult> {
   }
 }
 
+export async function runScore(argv: string[]): Promise<CommandResult> {
+  try {
+    const { values, positionals } = parseArgs({
+      args: argv,
+      options: {
+        o: { type: 'string', short: 'o' },
+        candidates: { type: 'string' },
+        'out-dir': { type: 'string' },
+        offline: { type: 'boolean', default: false },
+      },
+      allowPositionals: true,
+    });
+
+    const file = positionals[0];
+    if (file === undefined) return errorResult(USAGE_SCORE);
+
+    const count = values.candidates !== undefined ? Number(values.candidates) : DEFAULT_MUSIC_CANDIDATES;
+    if (!Number.isFinite(count) || count <= 0) return errorResult(`invalid --candidates value "${values.candidates}"`);
+
+    const reel = readReel(file);
+    const result = await scoreReel(reel, {
+      outDir: values['out-dir'] ?? DEFAULT_MUSIC_OUT_DIR,
+      count,
+      offline: values.offline === true,
+    });
+
+    const outJson = `${JSON.stringify(result.reel, null, 2)}\n`;
+    if (values.o !== undefined) {
+      writeFileSync(values.o, outJson);
+      writeFileSync(`${values.o}.music.json`, `${JSON.stringify(musicSidecar(result), null, 2)}\n`);
+    }
+
+    return {
+      stdout: values.o !== undefined ? '' : outJson,
+      stderr: scoreSummary(result),
+      exitCode: 0,
+    };
+  } catch (err) {
+    return errorResult(errMessage(err));
+  }
+}
+
+interface ScoredCandidate {
+  index: number;
+  track: GeneratedTrack;
+  analysis: TrackAnalysis;
+  score: TrackScore;
+}
+
+interface ScoreOptions {
+  outDir: string;
+  count: number;
+  offline: boolean;
+}
+
+interface ScoreResult {
+  reel: Reel;
+  candidates: ScoredCandidate[];
+  selected: ScoredCandidate;
+  /** The selected track's score after snapping, so alignments carry whether the cut moved. */
+  snapped: TrackScore;
+}
+
+/** Shared by `score` and `build`: generate candidates, measure each, pick the best, snap cuts to it. */
+async function scoreReel(reel: Reel, options: ScoreOptions): Promise<ScoreResult> {
+  if (!reel.music) throw new Error('reel has no "music" spec — nothing to score');
+
+  const tracks = await generateTracks(reel.music, {
+    outDir: options.outDir,
+    count: options.count,
+    format: 'mp3',
+    offline: options.offline,
+  });
+  const candidates: ScoredCandidate[] = [];
+  for (let i = 0; i < tracks.length; i++) {
+    const track = tracks[i]!;
+    const analysis = await runAnalyze(track.path);
+    candidates.push({ index: i + 1, track, analysis, score: scoreTrack(reel.hitPoints, analysis) });
+  }
+
+  const chosen = chooseBestTrack(candidates, reel.hitPoints);
+  if (!chosen) throw new Error('score: no music candidates to choose from');
+
+  const { reel: snappedReel, score: snapped } = snapReel(reel, chosen.track.analysis);
+  return { reel: snappedReel, candidates, selected: chosen.track, snapped };
+}
+
+function musicSidecar(result: ScoreResult): { path: string; durationSec: number; prompt?: string } {
+  return { path: result.selected.track.path, durationSec: result.selected.track.durationSec, prompt: result.selected.track.prompt };
+}
+
+function scoreSummary(result: ScoreResult): string {
+  const lines: string[] = [`score: ${plural(result.candidates.length, 'candidate')}`];
+  for (const candidate of result.candidates) {
+    const selectedMark = candidate.index === result.selected.index ? '   <- selected' : '';
+    lines.push(
+      `  track ${candidate.index}   ${candidate.score.hits}/${candidate.score.total} hits   ` +
+        `shift ${formatSec(candidate.score.totalShiftSec)}s   ${candidate.analysis.tempo.toFixed(1)} BPM${selectedMark}`,
+    );
+  }
+  lines.push(`  snapped hit points: [${result.reel.hitPoints.map((h) => formatSec(h)).join(', ')}]`);
+  return `${lines.join('\n')}\n`;
+}
+
 export function runEmit(argv: string[]): CommandResult {
   try {
     const { values, positionals } = parseArgs({
@@ -252,6 +372,195 @@ export function runEmit(argv: string[]): CommandResult {
   } catch (err) {
     return errorResult(errMessage(err));
   }
+}
+
+export async function runBuild(argv: string[]): Promise<CommandResult> {
+  try {
+    const { values, positionals } = parseArgs({
+      args: argv,
+      options: {
+        o: { type: 'string', short: 'o' },
+        duration: { type: 'string' },
+        lang: { type: 'string' },
+        provider: { type: 'string' },
+        offline: { type: 'boolean', default: false },
+        'skip-music': { type: 'boolean', default: false },
+      },
+      allowPositionals: true,
+    });
+
+    const input = positionals[0];
+    if (input === undefined) return errorResult(USAGE_BUILD);
+
+    const lang = values.lang ?? 'en';
+    if (lang !== 'en' && lang !== 'ja') return errorResult(`invalid --lang value "${lang}": expected "en" or "ja"`);
+
+    const provider = values.provider ?? 'system';
+    if (provider !== 'minimax' && provider !== 'system') {
+      return errorResult(`invalid --provider value "${provider}": expected "minimax" or "system"`);
+    }
+
+    let targetDurationSec: number | undefined;
+    if (values.duration !== undefined) {
+      const parsed = Number(values.duration);
+      if (!Number.isFinite(parsed) || parsed <= 0) return errorResult(`invalid --duration value "${values.duration}"`);
+      targetDurationSec = parsed;
+    }
+
+    const offline = values.offline === true;
+    const recordingFile = resolveRecordingFile(input);
+    // Keyed to the recording's own directory (not -o) so --offline replays the same cache
+    // regardless of where a given invocation writes its output.
+    const cacheDir = join(dirname(recordingFile), CACHE_DIR_NAME);
+    const outDir = values.o ?? DEFAULT_BUILD_OUT_DIR;
+    if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
+
+    const stages: string[] = [];
+    const recording = readRecording(recordingFile);
+
+    const design = await designReel(recording, { targetDurationSec, language: lang, cacheDir, offline });
+    let reel = design.reel;
+    const attemptWord = design.attempts.length === 1 ? 'attempt' : 'attempts';
+    stages.push(`plan: ${plural(reel.shots.length, 'shot')} designed in ${design.attempts.length} ${attemptWord}`);
+
+    const synthesized = await synthesizeLines(reel.narration, {
+      provider,
+      language: lang,
+      outDir: join(cacheDir, 'vo'),
+      offline,
+    });
+    const measured = new Map(synthesized.map((s) => [s.lineId, s.durationSec]));
+    const fit = fitReel(reel, { availableSec: footageByShot(reel), measured });
+    reel = fit.reel;
+    stages.push(`narrate: ${plural(synthesized.length, 'line')} synthesized (${provider}), total ${formatSec(fit.report.totalDurationSec)}s`);
+
+    let musicPath: string | undefined;
+    let scoreResult: ScoreResult | undefined;
+    if (values['skip-music'] !== true && reel.music) {
+      scoreResult = await scoreReel(reel, { outDir: join(cacheDir, 'music'), count: DEFAULT_MUSIC_CANDIDATES, offline });
+      reel = scoreResult.reel;
+      musicPath = scoreResult.selected.track.path;
+      stages.push(
+        `score: ${plural(scoreResult.candidates.length, 'candidate')}, selected track ${scoreResult.selected.index} ` +
+          `(${scoreResult.selected.score.hits}/${scoreResult.selected.score.total} hits)`,
+      );
+    } else {
+      stages.push('score: skipped');
+    }
+
+    const rendered = await renderShots(reel, { castPath: recordingFile, outDir: join(outDir, 'shots'), fps: reel.fps });
+    stages.push(`render: ${plural(reel.shots.length, 'shot')} rendered`);
+
+    const narrationAt = new Map(fit.report.lines.map((l) => [l.lineId, l.atSec]));
+    const mp4Path = join(outDir, 'reel.mp4');
+    const assembled = await assembleReel(reel, {
+      shots: rendered,
+      narration: synthesized,
+      narrationAt,
+      musicPath,
+      outPath: mp4Path,
+      fps: reel.fps,
+    });
+    stages.push(`assemble: ${formatSec(assembled.durationSec)}s -> ${basename(mp4Path)}`);
+
+    const shotMedia = new Map(reel.shots.map((s) => [s.id, requireRendered(rendered, s.id).path]));
+    const narrationMedia = new Map(synthesized.map((s) => [s.lineId, s.path]));
+    const narrationDuration = new Map(synthesized.map((s) => [s.lineId, s.durationSec]));
+    const otioPath = join(outDir, 'reel.otio');
+    const doc = buildOtio(reel, { media: { shotMedia, narrationMedia, musicMedia: musicPath }, narrationAt, narrationDuration });
+    writeFileSync(otioPath, otioToJson(doc));
+    stages.push(`emit: ${basename(otioPath)}`);
+
+    const reelPath = join(outDir, 'reel.json');
+    writeFileSync(reelPath, `${JSON.stringify(reel, null, 2)}\n`);
+
+    const report = buildReport(reel, design, fit.report, scoreResult, assembled, mp4Path, otioPath, reelPath, provider);
+    writeFileSync(join(outDir, 'reel.report.json'), `${JSON.stringify(report, null, 2)}\n`);
+
+    return { stdout: '', stderr: buildSummary(outDir, stages), exitCode: 0 };
+  } catch (err) {
+    return errorResult(errMessage(err));
+  }
+}
+
+/** `build` accepts a raw recording, or a directory containing one (`demo.cast` preferred, else the first .cast/.tape found). */
+function resolveRecordingFile(input: string): string {
+  const stat = statSync(input);
+  if (!stat.isDirectory()) return input;
+
+  const entries = readdirSync(input);
+  if (entries.includes('demo.cast')) return join(input, 'demo.cast');
+
+  const found = entries.find((e) => e.endsWith('.cast') || e.endsWith('.tape'));
+  if (found === undefined) throw new Error(`no .cast or .tape file found in directory "${input}"`);
+  return join(input, found);
+}
+
+function requireRendered(rendered: Map<string, { path: string; durationSec: number }>, shotId: string): { path: string; durationSec: number } {
+  const r = rendered.get(shotId);
+  if (!r) throw new Error(`build: shot "${shotId}" was not rendered`);
+  return r;
+}
+
+function buildReport(
+  reel: Reel,
+  design: DesignResult,
+  fitReport: FitReport,
+  scoreResult: ScoreResult | undefined,
+  assembled: { path: string; durationSec: number },
+  mp4Path: string,
+  otioPath: string,
+  reelPath: string,
+  provider: SpeechProvider,
+): unknown {
+  const tiers: Record<string, number> = {};
+  for (const line of fitReport.lines) tiers[line.tier] = (tiers[line.tier] ?? 0) + 1;
+
+  return {
+    title: reel.title,
+    totalDurationSec: totalDurationSec(reel),
+    shots: reel.shots.length,
+    plan: { attempts: design.attempts.length },
+    narrate: {
+      provider,
+      lines: fitReport.lines.length,
+      speechSec: round3(fitReport.lines.reduce((sum, l) => sum + l.speechSec, 0)),
+      tiers,
+    },
+    music: scoreResult
+      ? {
+          selectedTrack: scoreResult.selected.index,
+          candidates: scoreResult.candidates.map((c) => ({
+            track: c.index,
+            tempoBpm: round3(c.analysis.tempo),
+            durationSec: round3(c.analysis.durationSec),
+            beats: c.analysis.beats.length,
+            hits: c.score.hits,
+            total: c.score.total,
+            totalShiftSec: round3(c.score.totalShiftSec),
+          })),
+          alignments: scoreResult.snapped.alignments.map((a) => ({
+            hitPoint: round3(a.hitPoint),
+            beat: a.beat === undefined ? undefined : round3(a.beat),
+            shiftSec: a.shiftSec === undefined ? undefined : round3(a.shiftSec),
+            status: a.beat === undefined ? 'missed' : a.moved === true ? 'moved-to-beat' : 'already-on-beat',
+          })),
+          snappedHitPoints: reel.hitPoints.map(round3),
+        }
+      : undefined,
+    mp4: { path: mp4Path, durationSec: assembled.durationSec },
+    otio: { path: otioPath },
+    reel: { path: reelPath },
+  };
+}
+
+function round3(n: number): number {
+  return Math.round(n * 1000) / 1000;
+}
+
+function buildSummary(outDir: string, stages: string[]): string {
+  const lines = [`build: ${outDir}`, ...stages.map((s) => `  ${s}`)];
+  return `${lines.join('\n')}\n`;
 }
 
 /** Reads and validates a Reel from disk. Throws a single readable message on any failure. */
