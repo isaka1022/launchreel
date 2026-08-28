@@ -14,7 +14,8 @@ import { buildMessages, buildToolSchema } from './prompt.js';
  */
 
 const TOOL_NAME = 'emit_reel';
-const MODEL = 'MiniMaxAI/MiniMax-M3';
+/** Shared with `understand/rewrite.ts`, which calls the same model for narration shortening. */
+export const M3_MODEL = 'MiniMaxAI/MiniMax-M3';
 const DEFAULT_TARGET_DURATION_SEC = 30;
 const DEFAULT_MAX_REPAIRS = 2;
 
@@ -82,7 +83,7 @@ export async function designReel(recording: Recording, options: DesignOptions = 
   for (let attempt = 1; attempt <= totalAttempts; attempt++) {
     const response = await chatCompletion(
       {
-        model: MODEL,
+        model: M3_MODEL,
         messages,
         tools,
         tool_choice: { type: 'function', function: { name: TOOL_NAME } },

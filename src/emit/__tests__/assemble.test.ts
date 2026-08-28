@@ -93,6 +93,11 @@ describe('narrationFilterChain', () => {
     expect(chain.label).toBe('narrmix');
     expect(chain.filter).toContain('amix=inputs=2:duration=longest:normalize=0[narrmix]');
   });
+
+  it('atempoはadelayより前に適用される', () => {
+    const chain = narrationFilterChain([{ inputIndex: 2, delayMs: 1500, atempo: 1.044 }]);
+    expect(chain.filter).toContain('atempo=1.044,adelay=delays=1500|1500');
+  });
 });
 
 describe('musicFilterChain', () => {
@@ -254,6 +259,57 @@ describe('assembleReel (real ffmpeg)', () => {
       ]);
       // loudnorm resamples to 192 kHz; without an explicit aresample the encoder emits 96 kHz.
       expect(stdout.trim()).toBe('audio,48000');
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'atempoByLineを渡すと、実測したナレーション尺がその係数で実際に縮む',
+    async () => {
+      if (process.platform !== 'darwin') return;
+
+      const reel: Reel = {
+        version: 'launchreel/1',
+        title: 'assemble atempo test',
+        fps: 30,
+        shots: [{ id: 's1', kind: 'card', durationSec: 6, label: 'One', card: { title: 'One' } }],
+        narration: [{ id: 'n1', shotId: 's1', text: 'Testing one two three four five six seven eight nine ten.', atSec: 0.2 }],
+        hitPoints: [],
+      };
+
+      const s1 = await renderCard(reel.shots[0]!, { outDir, width: 320, height: 180 });
+      const synthesized = await synthesizeLines(reel.narration, { provider: 'system', outDir });
+      const nominalDurationSec = synthesized[0]!.durationSec;
+      const atempo = 1.06;
+
+      const outPath = join(outDir, 'out-atempo.mp4');
+      await assembleReel(reel, {
+        shots: new Map([['s1', s1]]),
+        narration: synthesized,
+        atempoByLine: new Map([['n1', atempo]]),
+        outPath,
+        width: 320,
+        height: 180,
+      });
+
+      // Reproduce the exact filter assembleReel used, isolated, so we can measure the narration
+      // clip's own duration (the assembled mp4's total is governed by video length, not audio).
+      const isolatedPath = join(outDir, 'narration-only.wav');
+      const chain = narrationFilterChain([{ inputIndex: 0, delayMs: 0, atempo }]);
+      await execFileAsync('ffmpeg', ['-y', '-i', synthesized[0]!.path, '-filter_complex', chain.filter, '-map', `[${chain.label}]`, isolatedPath]);
+      const { stdout } = await execFileAsync('ffprobe', [
+        '-v',
+        'error',
+        '-show_entries',
+        'format=duration',
+        '-of',
+        'csv=p=0',
+        isolatedPath,
+      ]);
+      const compressedDurationSec = Number(stdout.trim());
+
+      expect(compressedDurationSec).toBeLessThan(nominalDurationSec);
+      expect(compressedDurationSec).toBeCloseTo(nominalDurationSec / atempo, 1);
     },
     TEST_TIMEOUT_MS,
   );

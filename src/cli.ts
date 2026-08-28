@@ -7,11 +7,12 @@ import { parseCast } from './ingest/cast.js';
 import { parseTape } from './ingest/tape.js';
 import type { Evidence, EvidenceKind, Recording } from './ingest/types.js';
 import { reelSchema, totalDurationSec, validateReel, type Reel } from './timeline/schema.js';
-import { compressToFit, fitReel, type FitReport, type FitTier } from './timeline/fit.js';
+import { compressToFit, DEFAULT_MAX_ATEMPO, fitReel, type FitReport, type FitTier, type LineFit } from './timeline/fit.js';
 import { buildOtio, otioToJson } from './emit/otio.js';
 import { assembleReel } from './emit/assemble.js';
 import { formatZodIssues } from './report.js';
 import { designReel, type DesignResult } from './understand/m3.js';
+import { rewriteLines } from './understand/rewrite.js';
 import { synthesizeLines, type SpeechProvider, type SynthesizedLine } from './order/speech.js';
 import { generateTracks, type GeneratedTrack } from './order/music.js';
 import { CACHE_DIR_NAME } from './order/media.js';
@@ -419,20 +420,63 @@ export async function runBuild(argv: string[]): Promise<CommandResult> {
     const recording = readRecording(recordingFile);
 
     const design = await designReel(recording, { targetDurationSec, language: lang, cacheDir, offline });
-    let reel = design.reel;
+    const designedReel = design.reel;
+    let reel = designedReel;
     const attemptWord = design.attempts.length === 1 ? 'attempt' : 'attempts';
     stages.push(`plan: ${plural(reel.shots.length, 'shot')} designed in ${design.attempts.length} ${attemptWord}`);
 
-    const synthesized = await synthesizeLines(reel.narration, {
+    let synthesized = await synthesizeLines(reel.narration, {
       provider,
       language: lang,
       outDir: join(cacheDir, 'vo'),
       offline,
     });
-    const measured = new Map(synthesized.map((s) => [s.lineId, s.durationSec]));
-    const fit = fitReel(reel, { availableSec: footageByShot(reel), measured });
+    let fit = fitReel(reel, { availableSec: footageByShot(reel), measured: measuredFrom(synthesized) });
     reel = fit.reel;
     stages.push(`narrate: ${plural(synthesized.length, 'line')} synthesized (${provider}), total ${formatSec(fit.report.totalDurationSec)}s`);
+
+    const rewrites: RewriteRecord[] = [];
+    if (fit.report.needsRewrite) {
+      if (offline) {
+        stages.push(`rewrite: skipped (offline), ${plural(countTier(fit.report, 'needs-rewrite'), 'line')} still over budget`);
+      } else {
+        try {
+          const requests = fit.report.lines
+            .filter((l) => l.tier === 'needs-rewrite')
+            .map((l) => rewriteRequestFor(designedReel, l));
+
+          const rewritten = await rewriteLines(designedReel, requests, { language: lang });
+          const rewrittenById = new Map(rewritten.map((r) => [r.id, r.text]));
+
+          const newNarration = designedReel.narration.map((line) => {
+            const after = rewrittenById.get(line.id);
+            if (after === undefined) return line;
+            rewrites.push({ id: line.id, before: line.text, after });
+            return { ...line, text: after };
+          });
+          const rewrittenReel: Reel = { ...designedReel, narration: newNarration };
+
+          const reSynthesized = await synthesizeLines(newNarration.filter((l) => rewrittenById.has(l.id)), {
+            provider,
+            language: lang,
+            outDir: join(cacheDir, 'vo'),
+            offline,
+          });
+          synthesized = mergeSynthesized(synthesized, reSynthesized);
+
+          fit = fitReel(rewrittenReel, { availableSec: footageByShot(rewrittenReel), measured: measuredFrom(synthesized) });
+          reel = fit.reel;
+          stages.push(`rewrite: ${plural(rewrites.length, 'line')} shortened via M3, total ${formatSec(fit.report.totalDurationSec)}s`);
+        } catch (err) {
+          stages.push(`rewrite: skipped (${errMessage(err)})`);
+        }
+      }
+    }
+
+    if (fit.report.needsRewrite) {
+      fit = { reel: fit.reel, report: compressToFit(fit.report, DEFAULT_MAX_ATEMPO) };
+      stages.push(`compress: atempo applied (max ${DEFAULT_MAX_ATEMPO}x), ${plural(countTier(fit.report, 'compressed'), 'line')} compressed`);
+    }
 
     let musicPath: string | undefined;
     let scoreResult: ScoreResult | undefined;
@@ -452,11 +496,13 @@ export async function runBuild(argv: string[]): Promise<CommandResult> {
     stages.push(`render: ${plural(reel.shots.length, 'shot')} rendered`);
 
     const narrationAt = new Map(fit.report.lines.map((l) => [l.lineId, l.atSec]));
+    const atempoByLine = atempoByLineId(fit.report.lines);
     const mp4Path = join(outDir, 'reel.mp4');
     const assembled = await assembleReel(reel, {
       shots: rendered,
       narration: synthesized,
       narrationAt,
+      atempoByLine,
       musicPath,
       outPath: mp4Path,
       fps: reel.fps,
@@ -474,7 +520,7 @@ export async function runBuild(argv: string[]): Promise<CommandResult> {
     const reelPath = join(outDir, 'reel.json');
     writeFileSync(reelPath, `${JSON.stringify(reel, null, 2)}\n`);
 
-    const report = buildReport(reel, design, fit.report, scoreResult, assembled, mp4Path, otioPath, reelPath, provider);
+    const report = buildReport(reel, design, fit.report, rewrites, scoreResult, assembled, mp4Path, otioPath, reelPath, provider);
     writeFileSync(join(outDir, 'reel.report.json'), `${JSON.stringify(report, null, 2)}\n`);
 
     return { stdout: '', stderr: buildSummary(outDir, stages), exitCode: 0 };
@@ -502,10 +548,46 @@ function requireRendered(rendered: Map<string, { path: string; durationSec: numb
   return r;
 }
 
+interface RewriteRecord {
+  id: string;
+  before: string;
+  after: string;
+}
+
+/** `synthesizeLines` output keyed by line id, for feeding back into `fitReel`'s `measured` map. */
+function measuredFrom(lines: SynthesizedLine[]): Map<string, number> {
+  return new Map(lines.map((s) => [s.lineId, s.durationSec]));
+}
+
+/** Replaces re-synthesized entries by line id; lines untouched by a rewrite keep their original audio. */
+function mergeSynthesized(original: SynthesizedLine[], updates: SynthesizedLine[]): SynthesizedLine[] {
+  const byId = new Map(updates.map((u) => [u.lineId, u]));
+  return original.map((line) => byId.get(line.lineId) ?? line);
+}
+
+function countTier(report: FitReport, tier: FitTier): number {
+  return report.lines.filter((l) => l.tier === tier).length;
+}
+
+function atempoByLineId(lines: LineFit[]): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const line of lines) {
+    if (line.tier === 'compressed' && line.atempo !== undefined) map.set(line.lineId, line.atempo);
+  }
+  return map;
+}
+
+function rewriteRequestFor(reel: Reel, line: LineFit): { id: string; text: string; rewriteBudgetChars: number } {
+  const narrationLine = reel.narration.find((n) => n.id === line.lineId);
+  if (!narrationLine) throw new Error(`rewrite: narration line "${line.lineId}" missing from reel`);
+  return { id: line.lineId, text: narrationLine.text, rewriteBudgetChars: line.rewriteBudgetChars ?? 0 };
+}
+
 function buildReport(
   reel: Reel,
   design: DesignResult,
   fitReport: FitReport,
+  rewrites: RewriteRecord[],
   scoreResult: ScoreResult | undefined,
   assembled: { path: string; durationSec: number },
   mp4Path: string,
@@ -526,6 +608,7 @@ function buildReport(
       lines: fitReport.lines.length,
       speechSec: round3(fitReport.lines.reduce((sum, l) => sum + l.speechSec, 0)),
       tiers,
+      rewrites: rewrites.length > 0 ? rewrites : undefined,
     },
     music: scoreResult
       ? {

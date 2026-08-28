@@ -36,6 +36,8 @@ export interface AssembleOptions {
   shots: Map<string, { path: string; durationSec: number }>;
   narration?: SynthesizedLine[];
   narrationAt?: Map<string, number>;
+  /** Per-line atempo (>1 speeds up); comes from fit's 'compressed' tier. Applied before adelay. */
+  atempoByLine?: Map<string, number>;
   musicPath?: string;
   outPath: string;
   fps?: number;
@@ -125,6 +127,8 @@ export function videoFilterChain(
 export interface NarrationInput {
   inputIndex: number;
   delayMs: number;
+  /** Speed-up factor (>1) to apply before the delay, so the sped-up clip still lands on time. */
+  atempo?: number;
 }
 
 /** Delays each narration clip to its resolved start time, then sums them into one bus. */
@@ -134,8 +138,10 @@ export function narrationFilterChain(inputs: NarrationInput[]): FilterChain {
   const labels: string[] = [];
   inputs.forEach((input, i) => {
     const label = `narr${i}`;
+    const atempoFilter = input.atempo !== undefined ? `atempo=${input.atempo.toFixed(3)},` : '';
     parts.push(
-      `[${input.inputIndex}:a]aformat=sample_rates=${AUDIO_SAMPLE_RATE}:channel_layouts=stereo,adelay=delays=${input.delayMs}|${input.delayMs}[${label}]`,
+      `[${input.inputIndex}:a]aformat=sample_rates=${AUDIO_SAMPLE_RATE}:channel_layouts=stereo,` +
+        `${atempoFilter}adelay=delays=${input.delayMs}|${input.delayMs}[${label}]`,
     );
     labels.push(`[${label}]`);
   });
@@ -269,6 +275,10 @@ export async function assembleReel(reel: Reel, options: AssembleOptions): Promis
   const nominalSpans = shotSpans(reel);
   const narrationLines = options.narration ?? [];
 
+  // `atSec` (from fit.ts) places lines using their pre-compression measured length — compressToFit
+  // shrinks a line's *playback* duration but never moves its start. Applying atempo here is safe
+  // without touching atSec: the sped-up clip only ends sooner, leaving slack before whatever comes
+  // next (itself still placed at its own pre-compression atSec) rather than overlapping it.
   const narrationResolved = narrationLines.map((line) => {
     const meta = reel.narration.find((l) => l.id === line.lineId);
     if (!meta) throw new Error(`assembleReel: narration "${line.lineId}" has no matching line in reel.narration`);
@@ -276,7 +286,9 @@ export async function assembleReel(reel: Reel, options: AssembleOptions): Promis
     if (shotIndex === undefined) throw new Error(`assembleReel: narration "${line.lineId}" references unknown shot "${meta.shotId}"`);
     const nominalAtSec = options.narrationAt?.get(line.lineId) ?? meta.atSec ?? nominalSpans[shotIndex]!.start;
     const actualAtSec = Math.max(0, nominalAtSec - shotIndex * xfadeSec);
-    return { path: line.path, durationSec: line.durationSec, atSec: actualAtSec };
+    const atempo = options.atempoByLine?.get(line.lineId);
+    const durationSec = atempo !== undefined ? line.durationSec / atempo : line.durationSec;
+    return { path: line.path, durationSec, atSec: actualAtSec, atempo };
   });
 
   const narrationInputBase = shotInputs.length;
@@ -291,7 +303,9 @@ export async function assembleReel(reel: Reel, options: AssembleOptions): Promis
   const filters = await listFfmpegFilters();
   const hasSidechain = filters.has('sidechaincompress');
 
-  const narrChain = narrationFilterChain(narrationResolved.map((n, i) => ({ inputIndex: narrationInputBase + i, delayMs: Math.round(n.atSec * 1000) })));
+  const narrChain = narrationFilterChain(
+    narrationResolved.map((n, i) => ({ inputIndex: narrationInputBase + i, delayMs: Math.round(n.atSec * 1000), atempo: n.atempo })),
+  );
   const musicChain = musicInputIndex !== undefined ? musicFilterChain(musicInputIndex, totalSec, DEFAULT_MUSIC_FADE_SEC) : undefined;
   const narrationIntervals = narrationResolved.map((n) => ({ start: n.atSec, end: n.atSec + n.durationSec }));
   const mix = duckAndMix(musicChain?.label, narrChain.label, hasSidechain, narrationIntervals);

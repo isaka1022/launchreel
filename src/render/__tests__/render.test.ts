@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { renderCard } from '../card.js';
 import { renderShots } from '../index.js';
-import { renderTerminalShot } from '../terminal.js';
+import { lastDetectedRect, padAndClampCrop, renderTerminalShot } from '../terminal.js';
 import type { Reel, Shot } from '../../timeline/schema.js';
 
 /**
@@ -69,6 +69,42 @@ describe('renderTerminalShot', () => {
   it('evidenceRangeが無いshotを渡すと読めるエラーになる', async () => {
     const shot: Shot = { id: 'no-range', kind: 'terminal', durationSec: 3, label: 'missing evidenceRange' };
     await expect(renderTerminalShot(shot, { castPath: demoCastPath, outDir })).rejects.toThrow(/evidenceRange/);
+  });
+});
+
+describe('lastDetectedRect', () => {
+  it('reset=0のcropdetectログから最後のcrop=行を読む', () => {
+    const stderr = [
+      '[Parsed_cropdetect_0] crop=986:700:0:0',
+      '[Parsed_cropdetect_0] crop=596:246:12:20',
+      '[Parsed_cropdetect_0] crop=596:246:12:20',
+    ].join('\n');
+    expect(lastDetectedRect(stderr)).toEqual({ w: 596, h: 246, x: 12, y: 20 });
+  });
+
+  it('crop=行が無ければundefinedを返す', () => {
+    expect(lastDetectedRect('no cropdetect output here')).toBeUndefined();
+  });
+});
+
+describe('padAndClampCrop', () => {
+  const source = { width: 986, height: 700 };
+
+  it('検出領域にパディングを足し、フレーム外に出ないようクランプして偶数に丸める', () => {
+    const rect = padAndClampCrop({ w: 596, h: 246, x: 12, y: 20 }, source, 40);
+    // x0 = max(0, 12-40) = 0 (already even); x1 = min(986, 12+596+40) = 648 -> w = 648
+    // y0 = max(0, 20-40) = 0; y1 = min(700, 20+246+40) = 306 -> h = 306
+    expect(rect).toEqual({ x: 0, y: 0, w: 648, h: 306 });
+  });
+
+  it('検出領域が画面の20%未満ならundefinedを返す（誤検出扱い）', () => {
+    const rect = padAndClampCrop({ w: 50, h: 50, x: 0, y: 0 }, source, 40);
+    expect(rect).toBeUndefined();
+  });
+
+  it('検出領域がフレーム全体でもクランプ後は元のサイズに収まる（no-opとして安全）', () => {
+    const rect = padAndClampCrop({ w: 986, h: 700, x: 0, y: 0 }, source, 40);
+    expect(rect).toEqual({ x: 0, y: 0, w: 986, h: 700 });
   });
 });
 

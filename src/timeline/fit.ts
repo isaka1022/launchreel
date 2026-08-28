@@ -57,7 +57,8 @@ export interface FitOptions {
 const DEFAULT_LINE_GAP_SEC = 0.5;
 const DEFAULT_PAD_SEC = 0.3;
 const DEFAULT_MAX_SHOT_SEC = 20;
-const DEFAULT_MAX_ATEMPO = 1.06;
+/** Exported so callers (the `build` ladder) can report the ceiling `compressToFit` defaults to. */
+export const DEFAULT_MAX_ATEMPO = 1.06;
 
 interface ShotLineCalc {
   line: NarrationLine;
