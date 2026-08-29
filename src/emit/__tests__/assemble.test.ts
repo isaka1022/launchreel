@@ -362,7 +362,10 @@ describe('assembleReel (real ffmpeg)', () => {
       const compressedDurationSec = Number(stdout.trim());
 
       expect(compressedDurationSec).toBeLessThan(nominalDurationSec);
-      expect(compressedDurationSec).toBeCloseTo(nominalDurationSec / atempo, 1);
+      // Checked as a ratio: an AAC container's reported duration carries encoder padding, so an
+      // absolute tolerance would be tighter than the measurement itself.
+      const ratio = nominalDurationSec / compressedDurationSec;
+      expect(Math.abs(ratio - atempo) / atempo).toBeLessThan(0.05);
     },
     TEST_TIMEOUT_MS,
   );

@@ -18,6 +18,12 @@ const execFileAsync = promisify(execFile);
 
 const TTS_MODEL = 'minimax-tts-speech-2.8-hd';
 
+/**
+ * `say` writes uncompressed aiff by default, which is ~7x the size for narration that gets
+ * committed alongside the examples. AAC in m4a is what ffmpeg mixes from either way.
+ */
+const SYSTEM_AUDIO_EXT = 'm4a';
+
 /** macOS `say`'s roughly-default words-per-minute, used as the base for a `speed` multiplier. */
 const SYSTEM_BASE_RATE_WPM = 175;
 
@@ -115,7 +121,7 @@ async function synthesizeSystem(
   outDir: string,
   offline: boolean,
 ): Promise<SynthesizedLine> {
-  const path = join(outDir, `${line.id}-${cacheKey([line.text, voiceId, speed])}.aiff`);
+  const path = join(outDir, `${line.id}-${cacheKey([line.text, voiceId, speed])}.${SYSTEM_AUDIO_EXT}`);
   if (existsSync(path)) {
     return { lineId: line.id, path, durationSec: await probeDurationSec(path), provider: 'system', voiceId, speed };
   }
@@ -126,7 +132,7 @@ async function synthesizeSystem(
     throw new Error('speech provider "system" requires macOS `say` and is not available on this platform');
   }
 
-  const args = ['-v', voiceId, '-o', path];
+  const args = ['-v', voiceId, '-o', path, '--data-format=aac'];
   if (speed !== undefined) args.push('-r', String(Math.round(SYSTEM_BASE_RATE_WPM * speed)));
   args.push(line.text);
 
