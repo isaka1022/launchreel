@@ -1,0 +1,176 @@
+{
+  "reel": {
+    "version": "launchreel/1",
+    "title": "From terminal capture to polished Reel — in one command",
+    "fps": 30,
+    "shots": [
+      {
+        "id": "s1",
+        "kind": "card",
+        "durationSec": 3,
+        "label": "Title card",
+        "card": {
+          "title": "From terminal capture to polished Reel — in one command",
+          "subtitle": "launchreel // build • narrate • score • assemble"
+        }
+      },
+      {
+        "id": "s2",
+        "kind": "terminal",
+        "durationSec": 2.5,
+        "label": "Build command issued",
+        "evidenceRange": [
+          0.01,
+          3.86
+        ]
+      },
+      {
+        "id": "s3",
+        "kind": "terminal",
+        "durationSec": 4.5,
+        "label": "Plan, narration, and music scoring",
+        "evidenceRange": [
+          0.87,
+          9.17
+        ]
+      },
+      {
+        "id": "s4",
+        "kind": "terminal",
+        "durationSec": 1.5,
+        "label": "Render and assemble",
+        "evidenceRange": [
+          3.86,
+          10.77
+        ]
+      },
+      {
+        "id": "s5",
+        "kind": "terminal",
+        "durationSec": 2.7,
+        "label": "Score candidates and hit points",
+        "evidenceRange": [
+          10.77,
+          13.53
+        ]
+      },
+      {
+        "id": "s6",
+        "kind": "terminal",
+        "durationSec": 2.4,
+        "label": "OTIO stats: 35.13s Reel",
+        "evidenceRange": [
+          13.53,
+          16.03
+        ]
+      },
+      {
+        "id": "s7",
+        "kind": "terminal",
+        "durationSec": 0.83,
+        "label": "ffprobe: 1920x1080 h264",
+        "evidenceRange": [
+          16.02,
+          16.85
+        ]
+      },
+      {
+        "id": "s8",
+        "kind": "card",
+        "durationSec": 3,
+        "label": "Closing card",
+        "card": {
+          "title": "One command. A finished Reel.",
+          "subtitle": "launchreel build examples/self --offline -o out",
+          "command": "$ launchreel build examples/self --offline -o out"
+        }
+      }
+    ],
+    "narration": [
+      {
+        "id": "n1",
+        "shotId": "s1",
+        "text": "From a raw terminal capture to a polished Reel — in one command.",
+        "atSec": 0
+      },
+      {
+        "id": "n2",
+        "shotId": "s2",
+        "text": "Run launchreel build on your session. The pipeline plans, narrates, and scores your Reel.",
+        "atSec": 3
+      },
+      {
+        "id": "n3",
+        "shotId": "s3",
+        "text": "Seven shots designed, seven narration lines synthesized, and the best music track selected with five out of five hits.",
+        "atSec": 5.5
+      },
+      {
+        "id": "n4",
+        "shotId": "s4",
+        "text": "Shots render, then assemble into a single reel and an OpenTimelineIO edit.",
+        "atSec": 10
+      },
+      {
+        "id": "n5",
+        "shotId": "s5",
+        "text": "The scorer compares three candidates, snaps hit points to the beat at 129.2 BPM, and picks the tightest match.",
+        "atSec": 11.5
+      },
+      {
+        "id": "n6",
+        "shotId": "s6",
+        "text": "The OTIO stats confirm it: a 35-second Reel, frame-accurate, ready to ship.",
+        "atSec": 14.2
+      },
+      {
+        "id": "n7",
+        "shotId": "s7",
+        "text": "1920 by 1080, h264 — exported straight from the terminal.",
+        "atSec": 16.6
+      },
+      {
+        "id": "n8",
+        "shotId": "s8",
+        "text": "One command, end to end. Your Reel is ready.",
+        "atSec": 17.5
+      }
+    ],
+    "music": {
+      "caption": "Upbeat electronic, 129.2 BPM, 3 hit points at 4.63s / 12.43s / 18.87s (clipped to Reel length)",
+      "structureTags": [
+        "intro",
+        "build",
+        "drop",
+        "outro"
+      ],
+      "targetDurationSec": 30
+    },
+    "hitPoints": [
+      4.63,
+      12.43,
+      18.87
+    ]
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "problems": [
+        "hit point 22.2s is past the reel end (20.429999999999996s)",
+        "hit point 26.43s is past the reel end (20.429999999999996s)"
+      ],
+      "usage": {
+        "promptTokens": 1738,
+        "completionTokens": 1676
+      }
+    },
+    {
+      "attempt": 2,
+      "problems": [],
+      "usage": {
+        "promptTokens": 3475,
+        "completionTokens": 1546
+      }
+    }
+  ]
+}
