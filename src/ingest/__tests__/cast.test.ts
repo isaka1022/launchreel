@@ -63,4 +63,14 @@ describe('parseCast', () => {
     const annotations = recording.evidence.filter((e) => e.kind === 'annotation');
     expect(annotations.some((e) => e.text === 'install done')).toBe(true);
   });
+
+  it('durationSecは末尾の出力イベント時刻までとし、終了イベントで延長しない', () => {
+    const v2Events = ['[1, "o", "$ echo hi\\n"]', '[2, "o", "hi\\n"]', '[2.3, "x", "0"]'].join('\n');
+    const v2 = parseCast(`{"version":2,"width":80,"height":24}\n${v2Events}\n`);
+    expect(v2.durationSec).toBe(2);
+
+    const v3Events = ['[1, "o", "$ echo hi\\n"]', '[1, "o", "hi\\n"]', '[0.3, "x", "0"]'].join('\n');
+    const v3 = parseCast(`{"version":3,"term":{"cols":80,"rows":24}}\n${v3Events}\n`);
+    expect(v3.durationSec).toBe(2);
+  });
 });

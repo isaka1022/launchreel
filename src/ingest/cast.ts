@@ -85,8 +85,10 @@ export function parseCast(content: string): Recording {
     rawEvents.push({ time, code: rawCode, data });
   }
 
-  const lastEvent = rawEvents[rawEvents.length - 1];
-  const durationSec = lastEvent ? lastEvent.time : 0;
+  // Only output events draw to the screen, and v3 always appends a terminating "x" event —
+  // counting it would push durationSec past what agg will `--select` from the recording.
+  const lastOutputEvent = [...rawEvents].reverse().find((e) => e.code === 'o');
+  const durationSec = lastOutputEvent ? lastOutputEvent.time : 0;
 
   const evidence: Evidence[] = [
     ...assembleLines(rawEvents).map(classifyLine),
