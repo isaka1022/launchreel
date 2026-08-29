@@ -1,7 +1,10 @@
 import { z } from 'zod';
 import type { ChatMessage } from '../drivers/gmi.js';
+import { ONSET_LEAD_SEC } from '../timeline/fit.js';
+import { readableSpans, type TimeSpan } from '../ingest/activity.js';
+import type { FootageItem } from '../ingest/footage.js';
 import type { Evidence, Recording } from '../ingest/types.js';
-import { reelSchema, shotSchema } from '../timeline/schema.js';
+import { MAX_SHOT_SPEED, MIN_SHOT_SPEED, reelSchema, shotSchema } from '../timeline/schema.js';
 
 /**
  * Builds the tool schema and chat messages handed to MiniMax M3. The schema is derived from
@@ -13,6 +16,15 @@ export interface ToolSchemaOptions {
 }
 
 const GENERATED_KIND = 'generated';
+
+/** On-screen seconds a shot can hold before the viewer stops reading it as a cut. */
+const SHOT_SEC_MIN = 4;
+const SHOT_SEC_MAX = 8;
+/** Only a shot whose screen never settles earns more than this. */
+const SHOT_SEC_HARD_MAX = 10;
+/** Average shot lengths the target duration is divided by to get a shot count to aim for. */
+const LOOSE_SHOT_AVG_SEC = 6;
+const DENSE_SHOT_AVG_SEC = 4.5;
 
 /** JSON Schema for the `emit_reel` tool call. Drops "generated" from `kind` unless allowed. */
 export function buildToolSchema(options: ToolSchemaOptions): unknown {
@@ -75,7 +87,99 @@ function buildUserPrompt(recording: Recording, options: BuildMessagesOptions): s
   return lines.join('\n');
 }
 
+/**
+ * The long-form counterpart of {@link buildMessages}: the story comes from the pitch rather than
+ * from a single recording, and the footage is a set the model has to choose between. Same
+ * convention — one forced tool call, seconds measured from the start of each recording.
+ */
+export function buildLongFormMessages(pitch: string, footage: FootageItem[], options: BuildMessagesOptions): ChatMessage[] {
+  return [
+    { role: 'system', content: buildLongFormSystemPrompt(footage, options) },
+    { role: 'user', content: buildLongFormUserPrompt(pitch, footage, options) },
+  ];
+}
+
+function buildLongFormSystemPrompt(footage: FootageItem[], options: BuildMessagesOptions): string {
+  const ids = footage.map((item) => `"${item.id}"`).join(', ');
+  return [
+    'You design long-form product videos ("Reels") from a written pitch and a set of terminal recordings.',
+    `Call the "${options.toolName}" tool exactly once with the complete Reel — do not respond with plain text.`,
+    options.language === 'ja'
+      ? 'Write all narration, labels, and card text in Japanese.'
+      : 'Write all narration, labels, and card text in English.',
+    '',
+    'The narration follows the pitch\'s argument in its own order, in spoken language — do not read the pitch aloud.',
+    'Break it into lines a person can say in one breath, one thought per line.',
+    'Back every claim with the footage that demonstrates it: a shot that says setup is easy shows the setup recording.',
+    `Every "terminal" or "screencast" shot needs a "source" naming its recording (${ids}) and an evidenceRange [start, end] in that recording's own seconds.`,
+    '',
+    'CUT RATE — the single thing that decides whether this watches like a product video or a screensaver:',
+    `Give every shot ${SHOT_SEC_MIN}–${SHOT_SEC_MAX}s of durationSec. Go past ${SHOT_SEC_HARD_MAX}s only for a shot whose screen keeps ` +
+      `changing the whole way through; a shot that arrives at its final screen early must be cut at ${SHOT_SEC_MAX}s, not held.`,
+    'Reach the target duration by writing MORE shots, never by making shots longer.',
+    '',
+    'EVIDENCE RANGES — a terminal shot is carried by text appearing, so every range is built around that moment:',
+    'Each source below lists its "active spans": the stretches where the screen is drawing. A span\'s START is the moment ' +
+      'text appears, and that is what a shot has to show.',
+    `Start every range AT a span start, or up to ${ONSET_LEAD_SEC}s before one. The viewer should land on the shot and ` +
+      'watch the screen fill, not arrive at a page that finished printing before the cut.',
+    'Never start a range in the middle of a span (the drawing is already half over), and never start it in the quiet ' +
+      'between spans — that is a blank screen with a cursor, the worst frame in a video.',
+    'It is fine for a range to run on past its span into the quiet: the shot holds a finished screen the viewer is still reading. ' +
+      'Holding a finished screen is not a fault; opening on one is.',
+    'No two shots may show the same stretch of a recording. Every span is worth a shot, and a recording with four spans ' +
+      'can carry four different shots.',
+    '',
+    `Use "speed" to fit footage to the time you need: ${MIN_SHOT_SPEED}–1 stretches a short recording, 1–${MAX_SHOT_SPEED} skips through a slow one. ` +
+      `${MIN_SHOT_SPEED} is a hard floor: slower than that a terminal stops looking like playback and looks broken. ` +
+      'When a range still cannot fill a shot at that speed, leave it — the shot holds its last frame, which beats a crawl.',
+    '',
+    'Put a "card" shot at each chapter boundary: it names the section that follows and carries the cut between recordings.',
+    'Never place two cards back to back, and keep cards a minority of the shots — they are punctuation, not content.',
+    'Where the footage does not show something, do not stretch unrelated footage over it — use a card instead.',
+    'If the previous call failed validation, fix exactly the problems listed and call the tool again.',
+  ].join('\n');
+}
+
+/** Turns a target duration into the shot count that hits the cut rate above. */
+export function shotCountRange(targetDurationSec: number): [number, number] {
+  return [Math.round(targetDurationSec / LOOSE_SHOT_AVG_SEC), Math.round(targetDurationSec / DENSE_SHOT_AVG_SEC)];
+}
+
+function buildLongFormUserPrompt(pitch: string, footage: FootageItem[], options: BuildMessagesOptions): string {
+  const spanTotal = footage.reduce((sum, item) => sum + readableSpans(item.recording).length, 0);
+  const [minShots, maxShots] = shotCountRange(options.targetDurationSec);
+  const lines: string[] = [
+    'PITCH (the argument the video has to make):',
+    pitch.trim(),
+    '',
+    'FOOTAGE (timestamps are seconds from the start of that recording):',
+    ...footage.flatMap((item) => [
+      '',
+      `## source: ${item.id}  (${item.recording.durationSec.toFixed(2)}s)`,
+      `active spans (the screen draws here and is worth reading afterwards; open every evidenceRange on one): ${formatSpans(readableSpans(item.recording))}`,
+      ...item.recording.evidence.map(formatEvidence),
+    ]),
+    '',
+    `Target reel duration: about ${options.targetDurationSec}s, reached with ${minShots}–${maxShots} shots.`,
+    '',
+    `There are ${spanTotal} active spans across the ${footage.length} recordings — ${spanTotal} different moments of text appearing, ` +
+      'and each one can open a shot. Work through them rather than returning to the same few.',
+    'Cards carry what the footage never shows, and mark the chapter boundaries — they are the remainder, not the plan.',
+    'Each evidenceRange must fall inside its own source, and a source id must be one of the headings above.',
+  ];
+  return lines.join('\n');
+}
+
+function formatSpans(spans: TimeSpan[]): string {
+  if (spans.length === 0) return 'none — this recording never changes on screen';
+  return spans.map((s) => `${s.startSec.toFixed(2)}-${s.endSec.toFixed(2)}s`).join(', ');
+}
+
 function formatEvidence(evidence: Evidence): string {
+  if (evidence.kind === 'pause' && evidence.durationSec !== undefined) {
+    return `[${evidence.t.toFixed(2)}s] pause: screen frozen until ${(evidence.t + evidence.durationSec).toFixed(2)}s — nothing to show here`;
+  }
   const duration = evidence.durationSec !== undefined ? ` (+${evidence.durationSec.toFixed(2)}s)` : '';
   return `[${evidence.t.toFixed(2)}s${duration}] ${evidence.kind}: ${evidence.text}`;
 }

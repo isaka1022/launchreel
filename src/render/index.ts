@@ -13,8 +13,13 @@ import { renderTerminalShot, verifyDuration, type RenderedShot } from './termina
 
 const DEFAULT_FPS = 30;
 
+/** One entry per footage id, for reels whose shots read from more than one recording. */
+export type SourceMap = Map<string, { path: string; durationSec: number }>;
+
 export interface RenderOptions {
   castPath?: string;
+  /** Takes precedence over `castPath`; a shot's `source` picks the entry, or the sole entry when it has none. */
+  sources?: SourceMap;
   outDir: string;
   fps?: number;
   onProgress?: (shotId: string, index: number, total: number) => void;
@@ -24,18 +29,41 @@ export async function renderShots(reel: Reel, options: RenderOptions): Promise<M
   const fps = options.fps ?? DEFAULT_FPS;
   if (!existsSync(options.outDir)) mkdirSync(options.outDir, { recursive: true });
 
-  const recordingDurationSec = options.castPath !== undefined ? loadRecordingDurationSec(options.castPath) : undefined;
+  const sources = options.sources ?? singletonSource(options.castPath);
 
   const results = new Map<string, RenderedShot>();
   const total = reel.shots.length;
   for (let i = 0; i < total; i++) {
     const original = reel.shots[i]!;
-    const shot = recordingDurationSec !== undefined ? clampEvidenceRangeToRecording(original, recordingDurationSec) : original;
-    const rendered = await renderShot(shot, options.outDir, fps, options.castPath);
+    const source = original.evidenceRange ? resolveSource(original, sources) : undefined;
+    const shot = source !== undefined ? clampEvidenceRangeToRecording(original, source.durationSec) : original;
+    const rendered = await renderShot(shot, options.outDir, fps, source?.path);
     results.set(shot.id, rendered);
     options.onProgress?.(shot.id, i + 1, total);
   }
   return results;
+}
+
+/** A `castPath` with no readable duration still renders — the clamp is skipped and `agg` reports any real problem. */
+function singletonSource(castPath: string | undefined): SourceMap {
+  if (castPath === undefined) return new Map();
+  return new Map([[castPath, { path: castPath, durationSec: loadRecordingDurationSec(castPath) ?? Infinity }]]);
+}
+
+function resolveSource(shot: Shot, sources: SourceMap): { path: string; durationSec: number } | undefined {
+  if (sources.size === 0) return undefined;
+  if (shot.source === undefined) {
+    if (sources.size === 1) return [...sources.values()][0];
+    throw new Error(
+      `shot "${shot.id}" has an evidenceRange but no source, and the footage set has ${sources.size} recordings: ` +
+        `${[...sources.keys()].join(', ')}`,
+    );
+  }
+  const found = sources.get(shot.source);
+  if (found === undefined) {
+    throw new Error(`shot "${shot.id}" reads from unknown source "${shot.source}" — known sources: ${[...sources.keys()].join(', ')}`);
+  }
+  return found;
 }
 
 /**

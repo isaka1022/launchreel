@@ -2,8 +2,20 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { compressToFit, fitReel, type FitReport } from '../fit.js';
-import { reelSchema, totalDurationSec, type Reel } from '../schema.js';
+import {
+  compressToFit,
+  fitReel,
+  motionBreakdown,
+  onsetAdvisories,
+  onsetAlignments,
+  repeatedRangeAdvisories,
+  snapRangeToOnset,
+  stretchFootageToShots,
+  type FitReport,
+} from '../fit.js';
+import { MIN_SHOT_SPEED, reelSchema, shotFootageSec, totalDurationSec, type Reel } from '../schema.js';
+import type { TimeSpan } from '../../ingest/activity.js';
+import type { SourceTiming } from '../fit.js';
 
 const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'examples', 'vhs-demo');
 
@@ -123,5 +135,210 @@ describe('compressToFit', () => {
     expect(y1?.atempo).toBeUndefined();
 
     expect(result.needsRewrite).toBe(true); // yがまだneeds-rewriteのため
+  });
+});
+
+describe('stretchFootageToShots', () => {
+  const reel = (): Reel => ({
+    version: 'launchreel/1',
+    title: 'Fixture',
+    fps: 30,
+    shots: [
+      { id: 'short', kind: 'terminal', durationSec: 4, label: 'short', evidenceRange: [0, 3] },
+      { id: 'tiny', kind: 'terminal', durationSec: 40, label: 'tiny', evidenceRange: [0, 2] },
+      { id: 'covered', kind: 'terminal', durationSec: 4, label: 'covered', evidenceRange: [0, 9] },
+      { id: 'card', kind: 'card', durationSec: 3, label: 'card', card: { title: 'C' } },
+    ],
+    narration: [],
+    hitPoints: [],
+  });
+
+  it('尺に足りない素材だけ減速し、足りている素材と尺は触らない', () => {
+    const stretched = stretchFootageToShots(reel());
+    const byId = new Map(stretched.shots.map((s) => [s.id, s]));
+
+    expect(byId.get('short')?.speed).toBe(0.75); // 3s / 4s
+    expect(byId.get('tiny')?.speed).toBe(MIN_SHOT_SPEED); // 2s / 40s = 0.05 だが下限で止まる
+    expect(byId.get('covered')?.speed).toBeUndefined(); // すでに足りているので等倍のまま
+    expect(byId.get('card')?.speed).toBeUndefined();
+    expect(stretched.shots.map((s) => s.durationSec)).toEqual([4, 40, 4, 3]);
+  });
+
+  it('下限より遅くはせず、埋まらない分はフレーム保持に残す', () => {
+    const stretched = stretchFootageToShots(reel());
+    const tiny = stretched.shots.find((s) => s.id === 'tiny');
+
+    expect(tiny?.speed).toBe(MIN_SHOT_SPEED);
+    expect(shotFootageSec(tiny!)).toBeCloseTo(2 / MIN_SHOT_SPEED, 6); // 3.33s だけ動き、残り36.7sは保持
+  });
+
+  it('入力のReelを変更しない', () => {
+    const input = reel();
+    const before = JSON.stringify(input);
+    stretchFootageToShots(input);
+    expect(JSON.stringify(input)).toBe(before);
+  });
+});
+
+describe('snapRangeToOnset', () => {
+  // build は 2-4s と 9-12s で描画し、その間は止まっている。出力は各区間の末尾に一気に描かれる
+  const timing = new Map<string, SourceTiming>([
+    [
+      'build',
+      {
+        durationSec: 16,
+        spans: [
+          { startSec: 2, endSec: 4 },
+          { startSec: 9, endSec: 12 },
+        ],
+      },
+    ],
+  ]);
+
+  const reelOf = (evidenceRange: [number, number]): Reel => ({
+    version: 'launchreel/1',
+    title: 'Fixture',
+    fps: 30,
+    shots: [{ id: 's', kind: 'terminal', durationSec: 6, label: 's', source: 'build', evidenceRange }],
+    narration: [],
+    hitPoints: [],
+  });
+
+  const rangeOf = (reel: Reel): [number, number] | undefined => reel.shots[0]?.evidenceRange;
+
+  it('静止区間で始まる範囲を、次に描画が始まる直前まで送る', () => {
+    expect(rangeOf(snapRangeToOnset(reelOf([6, 14]), timing))).toEqual([8.6, 14]);
+  });
+
+  it('描画の途中から始まる範囲は、その描画の先頭まで戻す', () => {
+    expect(rangeOf(snapRangeToOnset(reelOf([11, 14]), timing))).toEqual([8.6, 14]);
+  });
+
+  it('描画が終わる瞬間で切れている範囲は、描かれた画面が映るまで末尾を伸ばす', () => {
+    // [1.8, 4] は出力が描かれる 4.00s ちょうどで終わり、コマンド行だけの画面で終わってしまう
+    expect(rangeOf(snapRangeToOnset(reelOf([1.8, 4]), timing))).toEqual([1.8, 5]);
+  });
+
+  it('末尾を伸ばすときも録画の長さを超えない', () => {
+    expect(rangeOf(snapRangeToOnset(reelOf([8.9, 12]), timing))).toEqual([8.9, 13]);
+    expect(rangeOf(snapRangeToOnset(reelOf([8.9, 15.5]), new Map([['build', { durationSec: 12.5, spans: timing.get('build')!.spans }]])))).toEqual([8.9, 12.5]);
+  });
+
+  it('すでに描画開始の直前にあり末尾も足りている範囲は動かさない', () => {
+    expect(rangeOf(snapRangeToOnset(reelOf([1.8, 6]), timing))).toEqual([1.8, 6]);
+  });
+
+  it('以後まったく描画がない範囲は動かさず、入力も変更しない', () => {
+    const input = reelOf([13, 16]);
+    const before = JSON.stringify(input);
+    expect(rangeOf(snapRangeToOnset(input, timing))).toEqual([13, 16]);
+    expect(JSON.stringify(input)).toBe(before);
+  });
+
+  it('スナップ後は全ショットが描画開始の許容範囲に収まる', () => {
+    const snapped = snapRangeToOnset(reelOf([6, 14]), timing);
+    const [alignment] = onsetAlignments(snapped, timing);
+
+    expect(alignment?.offsetSec).toBeCloseTo(-0.4, 6);
+    expect(onsetAdvisories(snapped, timing)).toEqual([]);
+  });
+
+  it('ずれたままのショットは、どこから始めるべきかを添えて指摘する', () => {
+    const advisories = onsetAdvisories(reelOf([6, 8.8]), timing);
+
+    expect(advisories).toHaveLength(1);
+    expect(advisories[0]).toContain('opens on 3.00s of a screen that is not moving');
+    expect(advisories[0]).toContain('the next thing drawn is at 9.00s');
+  });
+});
+
+describe('repeatedRangeAdvisories', () => {
+  const reelOf = (ranges: [string, string, [number, number]][]): Reel => ({
+    version: 'launchreel/1',
+    title: 'Fixture',
+    fps: 30,
+    shots: ranges.map(([id, source, evidenceRange]) => ({
+      id,
+      kind: 'terminal' as const,
+      durationSec: 4,
+      label: id,
+      source,
+      evidenceRange,
+    })),
+    narration: [],
+    hitPoints: [],
+  });
+
+  it('同じ素材の同じ場面を二度使ったショットだけを指摘する', () => {
+    const advisories = repeatedRangeAdvisories(
+      reelOf([
+        ['a', 'build', [0, 4]],
+        ['b', 'build', [0.2, 4.1]],
+        ['c', 'build', [9, 12]],
+        ['d', 'setup', [0, 4]],
+      ]),
+    );
+
+    expect(advisories).toHaveLength(1);
+    expect(advisories[0]).toContain('shot "b"');
+    expect(advisories[0]).toContain('shot "a" already showed');
+  });
+});
+
+describe('motionBreakdown', () => {
+  // build は 0-2s と 8-10s だけ画面が動き、2-8s は止まっている
+  const active = new Map<string, TimeSpan[]>([
+    [
+      'build',
+      [
+        { startSec: 0, endSec: 2 },
+        { startSec: 8, endSec: 10 },
+      ],
+    ],
+  ]);
+
+  const reelOf = (shots: Reel['shots']): Reel => ({
+    version: 'launchreel/1',
+    title: 'Fixture',
+    fps: 30,
+    shots,
+    narration: [],
+    hitPoints: [],
+  });
+
+  it('素材で埋まった秒数と、そのうち実際に画面が動く秒数を分けて数える', () => {
+    const motion = motionBreakdown(
+      reelOf([
+        { id: 's1', kind: 'terminal', durationSec: 10, label: 's1', source: 'build', evidenceRange: [0, 10] },
+        { id: 's2', kind: 'card', durationSec: 4, label: 's2', card: { title: 'C' } },
+      ]),
+      active,
+    );
+
+    expect(motion.totalSec).toBe(14);
+    expect(motion.footageSec).toBe(10);
+    expect(motion.changingSec).toBe(4);
+    expect(motion.heldSec).toBe(4); // カードぶん
+  });
+
+  it('尺より素材が短いぶんは保持として数える', () => {
+    const motion = motionBreakdown(
+      reelOf([{ id: 's1', kind: 'terminal', durationSec: 10, label: 's1', source: 'build', evidenceRange: [0, 2] }]),
+      active,
+    );
+
+    expect(motion.footageSec).toBe(2);
+    expect(motion.changingSec).toBe(2);
+    expect(motion.heldSec).toBe(8);
+  });
+
+  it('速度を落とすと同じ範囲が長く画面を占める', () => {
+    const motion = motionBreakdown(
+      reelOf([{ id: 's1', kind: 'terminal', durationSec: 10, label: 's1', source: 'build', evidenceRange: [0, 2], speed: 0.5 }]),
+      active,
+    );
+
+    expect(motion.footageSec).toBe(4);
+    expect(motion.changingSec).toBe(4);
   });
 });

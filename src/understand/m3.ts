@@ -1,16 +1,20 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { chatCompletion, type ChatResponse, type ToolCall } from '../drivers/gmi.js';
+import { chatCompletion, type ChatMessage, type ChatResponse, type ToolCall } from '../drivers/gmi.js';
+import { readableSpans } from '../ingest/activity.js';
+import { footageDurations, type FootageItem } from '../ingest/footage.js';
+import { onsetAdvisories, repeatedRangeAdvisories } from '../timeline/fit.js';
 import type { Recording } from '../ingest/types.js';
 import { cacheKey } from '../order/media.js';
 import { formatZodIssues } from '../report.js';
-import { reelSchema, type Reel, validateAgainstRecording, validateReel } from '../timeline/schema.js';
-import { buildMessages, buildToolSchema } from './prompt.js';
+import { reelSchema, type Reel, validateAgainstFootage, validateAgainstRecording, validateReel } from '../timeline/schema.js';
+import { buildLongFormMessages, buildMessages, buildToolSchema } from './prompt.js';
 
 /**
- * Turns a Recording into a validated Reel by calling MiniMax M3 with a forced tool call, then
+ * Turns evidence into a validated Reel by calling MiniMax M3 with a forced tool call, then
  * feeding any schema/validation failures straight back to the model until it produces something
- * that parses and passes `validateReel`, or `maxRepairs` runs out.
+ * that parses and passes validation, or `maxRepairs` runs out. Two entry points share the loop:
+ * `designReel` for a single recording, `designLongFormReel` for a pitch plus a set of footage.
  */
 
 const TOOL_NAME = 'emit_reel';
@@ -18,6 +22,16 @@ const TOOL_NAME = 'emit_reel';
 export const M3_MODEL = 'MiniMaxAI/MiniMax-M3';
 const DEFAULT_TARGET_DURATION_SEC = 30;
 const DEFAULT_MAX_REPAIRS = 2;
+/** Long-form reels are designed from a pitch and several recordings; the extra structure needs more room to get right. */
+const LONG_FORM_MAX_REPAIRS = 3;
+/** A thirty-shot timeline is a long tool call, and the driver's default cuts it off mid-generation. */
+const LONG_FORM_TIMEOUT_MS = 900_000;
+/**
+ * The endpoint defaults to 4096 completion tokens, which a long-form timeline overruns silently:
+ * the response comes back `finish_reason: "length"` with no tool call at all, and every repair
+ * attempt hits the same wall.
+ */
+const DESIGN_MAX_COMPLETION_TOKENS = 32_768;
 
 export interface DesignOptions {
   targetDurationSec?: number;
@@ -30,6 +44,8 @@ export interface DesignOptions {
   cacheDir?: string;
   /** When true, a cache miss is a readable error instead of a network call — for reproducible offline runs. */
   offline?: boolean;
+  /** Where to surface things the caller should know but that are not failures, e.g. a stale cached plan. */
+  onNotice?: (message: string) => void;
 }
 
 export interface DesignAttempt {
@@ -37,27 +53,98 @@ export interface DesignAttempt {
   attempt: number;
   /** Problems that sent us back to the model. Empty on the successful attempt. */
   problems: string[];
+  /** Quality complaints that sent us back to the model without being allowed to fail the build. */
+  advisories?: string[];
   usage?: { promptTokens: number; completionTokens: number };
 }
 
 export interface DesignResult {
   reel: Reel;
   attempts: DesignAttempt[];
+  /** Advisories the model never resolved. The reel is still buildable; the numbers go in the report. */
+  advisories: string[];
 }
 
 export async function designReel(recording: Recording, options: DesignOptions = {}): Promise<DesignResult> {
   const targetDurationSec = options.targetDurationSec ?? DEFAULT_TARGET_DURATION_SEC;
   const language = options.language ?? 'en';
   const allowGenerated = options.allowGenerated ?? false;
-  const maxRepairs = options.maxRepairs ?? DEFAULT_MAX_REPAIRS;
 
-  const cachePath =
-    options.cacheDir !== undefined
-      ? join(options.cacheDir, `plan-${cacheKey([recording, targetDurationSec, language, allowGenerated])}.json`)
-      : undefined;
+  return runDesignLoop({
+    messages: buildMessages(recording, { targetDurationSec, language, toolName: TOOL_NAME }),
+    validate: (reel) => validateAgainstRecording(reel, recording.durationSec),
+    cachePath: planCachePath(options.cacheDir, 'plan', [recording, targetDurationSec, language, allowGenerated]),
+    allowGenerated,
+    maxRepairs: options.maxRepairs ?? DEFAULT_MAX_REPAIRS,
+    options,
+  });
+}
+
+/**
+ * Designs a two-to-three-minute reel from the pitch that states the argument and the footage that
+ * can back it up. Each shot names the footage it reads via `Shot.source`, so a claim can be shown
+ * with the recording that actually demonstrates it.
+ */
+export async function designLongFormReel(
+  pitch: string,
+  footage: FootageItem[],
+  options: DesignOptions = {},
+): Promise<DesignResult> {
+  const targetDurationSec = options.targetDurationSec ?? DEFAULT_TARGET_DURATION_SEC;
+  const language = options.language ?? 'en';
+  const allowGenerated = options.allowGenerated ?? false;
+  const durations = footageDurations(footage);
+  const readable = new Map(
+    footage.map((item) => [item.id, { spans: readableSpans(item.recording), durationSec: item.recording.durationSec }]),
+  );
+
+  return runDesignLoop({
+    messages: buildLongFormMessages(pitch, footage, { targetDurationSec, language, toolName: TOOL_NAME }),
+    validate: (reel) => validateAgainstFootage(reel, durations),
+    advise: (reel) => [...onsetAdvisories(reel, readable), ...repeatedRangeAdvisories(reel)],
+    cachePath: planCachePath(options.cacheDir, 'plan-longform', [
+      pitch,
+      footage.map((f) => [f.id, f.recording]),
+      targetDurationSec,
+      language,
+      allowGenerated,
+    ]),
+    allowGenerated,
+    maxRepairs: options.maxRepairs ?? LONG_FORM_MAX_REPAIRS,
+    options: { ...options, timeoutMs: options.timeoutMs ?? LONG_FORM_TIMEOUT_MS },
+  });
+}
+
+function planCachePath(cacheDir: string | undefined, prefix: string, parts: unknown[]): string | undefined {
+  return cacheDir === undefined ? undefined : join(cacheDir, `${prefix}-${cacheKey(parts)}.json`);
+}
+
+interface DesignLoop {
+  messages: ChatMessage[];
+  /** Checks the reel against whatever it claims to read from. Structural checks are applied on top. */
+  validate: (reel: Reel) => string[];
+  /** Quality complaints worth one more attempt, but never worth failing a build over. */
+  advise?: (reel: Reel) => string[];
+  cachePath: string | undefined;
+  allowGenerated: boolean;
+  maxRepairs: number;
+  options: DesignOptions;
+}
+
+async function runDesignLoop(loop: DesignLoop): Promise<DesignResult> {
+  const { messages, cachePath, options } = loop;
+
+  const promptHash = cacheKey([messages]);
 
   if (cachePath !== undefined && existsSync(cachePath)) {
-    return readCachedDesign(cachePath);
+    const cached = readCachedDesign(cachePath);
+    const stale = cached.promptHash !== undefined && cached.promptHash !== promptHash;
+    if (!stale) return cached.result;
+    if (options.offline === true) {
+      options.onNotice?.(`the cached plan was designed from an older prompt; --offline replays it unchanged (${cachePath})`);
+      return cached.result;
+    }
+    options.onNotice?.('the prompt changed since the cached plan was designed; designing a new one');
   }
   if (options.offline === true) {
     throw new Error(
@@ -71,14 +158,14 @@ export async function designReel(recording: Recording, options: DesignOptions = 
       function: {
         name: TOOL_NAME,
         description: 'Emit the designed Reel timeline.',
-        parameters: buildToolSchema({ allowGenerated }),
+        parameters: buildToolSchema({ allowGenerated: loop.allowGenerated }),
       },
     },
   ];
 
-  const messages = buildMessages(recording, { targetDurationSec, language, toolName: TOOL_NAME });
   const attempts: DesignAttempt[] = [];
-  const totalAttempts = maxRepairs + 1;
+  const totalAttempts = loop.maxRepairs + 1;
+  let advised = false;
 
   for (let attempt = 1; attempt <= totalAttempts; attempt++) {
     const response = await chatCompletion(
@@ -87,17 +174,26 @@ export async function designReel(recording: Recording, options: DesignOptions = 
         messages,
         tools,
         tool_choice: { type: 'function', function: { name: TOOL_NAME } },
+        max_tokens: DESIGN_MAX_COMPLETION_TOKENS,
       },
       { baseUrl: options.baseUrl, timeoutMs: options.timeoutMs },
     );
 
     const usage = toUsage(response);
-    const result = extractReel(response, recording);
+    const result = extractReel(response, loop.validate);
 
     if (result.reel !== undefined) {
-      attempts.push({ attempt, problems: [], usage });
-      const designResult: DesignResult = { reel: result.reel, attempts };
-      if (cachePath !== undefined) writeCachedDesign(cachePath, designResult);
+      const advisories = loop.advise?.(result.reel) ?? [];
+      attempts.push({ attempt, problems: [], advisories, usage });
+
+      if (advisories.length > 0 && !advised && attempt < totalAttempts && result.toolCall !== undefined) {
+        advised = true;
+        pushRepairTurn(messages, response, result.toolCall, advisories);
+        continue;
+      }
+
+      const designResult: DesignResult = { reel: result.reel, attempts, advisories };
+      if (cachePath !== undefined) writeCachedDesign(cachePath, designResult, promptHash);
       return designResult;
     }
 
@@ -114,11 +210,15 @@ export async function designReel(recording: Recording, options: DesignOptions = 
       messages.push({ role: 'user', content: `Problems with your response:\n${formatProblems(result.problems)}` });
       continue;
     }
-    messages.push({ role: 'assistant', content: response.choices[0]?.message.content ?? null, tool_calls: [result.toolCall] });
-    messages.push({ role: 'tool', tool_call_id: result.toolCall.id, content: formatProblems(result.problems) });
+    pushRepairTurn(messages, response, result.toolCall, result.problems);
   }
 
-  throw new Error('unreachable: designReel loop exited without returning or throwing');
+  throw new Error('unreachable: design loop exited without returning or throwing');
+}
+
+function pushRepairTurn(messages: ChatMessage[], response: ChatResponse, toolCall: ToolCall, problems: string[]): void {
+  messages.push({ role: 'assistant', content: response.choices?.[0]?.message.content ?? null, tool_calls: [toolCall] });
+  messages.push({ role: 'tool', tool_call_id: toolCall.id, content: formatProblems(problems) });
 }
 
 interface ExtractResult {
@@ -127,10 +227,12 @@ interface ExtractResult {
   toolCall?: ToolCall;
 }
 
-function extractReel(response: ChatResponse, recording: Recording): ExtractResult {
-  const toolCall = response.choices[0]?.message.tool_calls?.[0];
+function extractReel(response: ChatResponse, validate: (reel: Reel) => string[]): ExtractResult {
+  const toolCall = response.choices?.[0]?.message.tool_calls?.[0];
   if (toolCall === undefined) {
-    return { problems: [`model did not call the "${TOOL_NAME}" tool`] };
+    const finishReason = response.choices?.[0]?.finish_reason;
+    const why = finishReason === undefined ? '' : ` (finish_reason: ${finishReason})`;
+    return { problems: [`model did not call the "${TOOL_NAME}" tool${why}`] };
   }
 
   let raw: unknown;
@@ -145,10 +247,7 @@ function extractReel(response: ChatResponse, recording: Recording): ExtractResul
     return { problems: formatZodIssues(parsed.error).split('\n'), toolCall };
   }
 
-  const problems = [
-    ...validateReel(parsed.data),
-    ...validateAgainstRecording(parsed.data, recording.durationSec),
-  ];
+  const problems = [...validateReel(parsed.data), ...validate(parsed.data)];
   if (problems.length > 0) {
     return { problems, toolCall };
   }
@@ -159,19 +258,29 @@ function extractReel(response: ChatResponse, recording: Recording): ExtractResul
 interface CachedDesign {
   reel: Reel;
   attempts: DesignAttempt[];
+  advisories?: string[];
+  /**
+   * Digest of the messages the plan was designed from. Absent in plans written before this was
+   * recorded, which are taken at face value rather than declared stale on no evidence.
+   */
+  promptHash?: string;
 }
 
-function readCachedDesign(path: string): DesignResult {
+function readCachedDesign(path: string): { result: DesignResult; promptHash: string | undefined } {
   const raw = JSON.parse(readFileSync(path, 'utf8')) as CachedDesign;
   const parsed = reelSchema.safeParse(raw.reel);
   if (!parsed.success) throw new Error(`cached plan at ${path} is invalid:\n${formatZodIssues(parsed.error)}`);
-  return { reel: parsed.data, attempts: raw.attempts };
+  return {
+    result: { reel: parsed.data, attempts: raw.attempts, advisories: raw.advisories ?? [] },
+    promptHash: raw.promptHash,
+  };
 }
 
-function writeCachedDesign(path: string, result: DesignResult): void {
+function writeCachedDesign(path: string, result: DesignResult, promptHash: string): void {
   const dir = dirname(path);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(path, `${JSON.stringify(result, null, 2)}\n`);
+  const cached: CachedDesign = { ...result, promptHash };
+  writeFileSync(path, `${JSON.stringify(cached, null, 2)}\n`);
 }
 
 function formatProblems(problems: string[]): string {

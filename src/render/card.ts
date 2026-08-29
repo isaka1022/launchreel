@@ -131,7 +131,7 @@ function buildCardSvg(card: CardText, layout: CardLayout): string {
   const commandFontSize = Math.round(height * 0.032);
   const commandLineHeight = Math.round(commandFontSize * 1.5);
   const commandLines =
-    card.command !== undefined
+    card.command !== undefined && card.command.trim() !== ''
       ? wrapText(card.command, estimateMaxChars(card.command, commandFontSize, maxTextWidth * 0.92))
       : [];
   const commandBoxPaddingX = Math.round(commandFontSize * 0.9);

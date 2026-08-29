@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatResponse } from '../../drivers/gmi.js';
 import type { Recording } from '../../ingest/types.js';
 import type { Reel } from '../../timeline/schema.js';
@@ -13,6 +16,12 @@ const { designReel } = await import('../m3.js');
 const { buildToolSchema } = await import('../prompt.js');
 
 const mockedChatCompletion = vi.mocked(chatCompletion);
+
+function findCachedPlan(dir: string): string {
+  const [name] = readdirSync(dir).filter((f) => f.endsWith('.json'));
+  if (name === undefined) throw new Error(`no cached plan written to ${dir}`);
+  return join(dir, name);
+}
 
 const recording: Recording = {
   source: 'cast',
@@ -94,6 +103,63 @@ describe('designReel', () => {
 
     await expect(designReel(recording, { maxRepairs: 1 })).rejects.toThrow(/3\.65/);
     expect(mockedChatCompletion).toHaveBeenCalledTimes(2); // 1 initial + 1 repair
+  });
+});
+
+describe('プランキャッシュとプロンプトの対応', () => {
+  let cacheDir: string;
+
+  beforeEach(() => {
+    cacheDir = mkdtempSync(join(tmpdir(), 'launchreel-plan-cache-'));
+  });
+
+  afterEach(() => {
+    rmSync(cacheDir, { recursive: true, force: true });
+  });
+
+  it('プロンプトが変わっていればオンラインでは作り直す', async () => {
+    mockedChatCompletion.mockResolvedValueOnce(toolResponse(validReel()));
+    const notices: string[] = [];
+    await designReel(recording, { cacheDir, onNotice: (m) => notices.push(m) });
+
+    const cachePath = findCachedPlan(cacheDir);
+    const cached = JSON.parse(readFileSync(cachePath, 'utf8')) as Record<string, unknown>;
+    expect(cached['promptHash']).toBeTypeOf('string');
+
+    writeFileSync(cachePath, JSON.stringify({ ...cached, promptHash: 'stale' }));
+    mockedChatCompletion.mockResolvedValueOnce(toolResponse(validReel()));
+    await designReel(recording, { cacheDir, onNotice: (m) => notices.push(m) });
+
+    expect(mockedChatCompletion).toHaveBeenCalledTimes(2);
+    expect(notices.join('\n')).toContain('designing a new one');
+  });
+
+  it('--offline ではプロンプトが変わっていてもキャッシュを再生し、変わった旨だけ伝える', async () => {
+    mockedChatCompletion.mockResolvedValueOnce(toolResponse(validReel()));
+    await designReel(recording, { cacheDir });
+    const cachePath = findCachedPlan(cacheDir);
+    writeFileSync(cachePath, JSON.stringify({ ...JSON.parse(readFileSync(cachePath, 'utf8')), promptHash: 'stale' }));
+
+    const notices: string[] = [];
+    const result = await designReel(recording, { cacheDir, offline: true, onNotice: (m) => notices.push(m) });
+
+    expect(mockedChatCompletion).toHaveBeenCalledTimes(1); // 追加の呼び出しなし
+    expect(result.reel.shots).toHaveLength(1);
+    expect(notices.join('\n')).toContain('replays it unchanged');
+  });
+
+  it('promptHashを持たない旧キャッシュは黙って使う', async () => {
+    mockedChatCompletion.mockResolvedValueOnce(toolResponse(validReel()));
+    await designReel(recording, { cacheDir });
+    const cachePath = findCachedPlan(cacheDir);
+    const { promptHash: _dropped, ...legacy } = JSON.parse(readFileSync(cachePath, 'utf8')) as Record<string, unknown>;
+    writeFileSync(cachePath, JSON.stringify(legacy));
+
+    const notices: string[] = [];
+    await designReel(recording, { cacheDir, onNotice: (m) => notices.push(m) });
+
+    expect(mockedChatCompletion).toHaveBeenCalledTimes(1);
+    expect(notices).toEqual([]);
   });
 });
 

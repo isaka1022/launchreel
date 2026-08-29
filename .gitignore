@@ -8,5 +8,5 @@ dist/
 # The example fixtures must ship: `launchreel build examples/self --offline` is the first thing
 # anyone runs, and it fails without them. Re-included explicitly because common global ignores
 # (*.cache, Music/) would otherwise drop them silently.
-!examples/self/launchreel-cache/
-!examples/self/launchreel-cache/**
+!examples/*/launchreel-cache/
+!examples/*/launchreel-cache/**

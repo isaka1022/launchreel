@@ -17,6 +17,14 @@ export interface MediaResolution {
   narrationMedia: Map<string, string>;
   /** Absolute path to the selected music track. */
   musicMedia?: string;
+  /** Tracks laid end to end, when the reel is long enough to need more than one. Wins over `musicMedia`. */
+  musicSegments?: MusicSegmentMedia[];
+}
+
+export interface MusicSegmentMedia {
+  path: string;
+  startSec: number;
+  durationSec: number;
 }
 
 /** Provenance recorded on every generated clip, so a re-edit knows how it was made. */
@@ -180,14 +188,24 @@ export function buildOtio(reel: Reel, options: BuildOtioOptions = {}): unknown {
 
   const total = totalDurationSec(reel);
   if (reel.music) {
-    const musicDuration = Math.min(reel.music.targetDurationSec, total);
-    tracks.push(
-      track('A2_MUSIC', 'Audio', [
-        clip('music', musicDuration, fps, options.media?.musicMedia, {
-          launchreel: { kind: 'music', caption: reel.music.caption, structureTags: reel.music.structureTags },
-        }),
-      ]),
-    );
+    const musicMeta = { kind: 'music', caption: reel.music.caption, structureTags: reel.music.structureTags };
+    const segments = options.media?.musicSegments;
+    if (segments !== undefined && segments.length > 0) {
+      const children: unknown[] = [];
+      let cursor = 0;
+      segments.forEach((segment, i) => {
+        if (segment.startSec > cursor) {
+          children.push(gap(segment.startSec - cursor, fps));
+          cursor = segment.startSec;
+        }
+        children.push(clip(`music_${i + 1}`, segment.durationSec, fps, segment.path, { launchreel: musicMeta }));
+        cursor += segment.durationSec;
+      });
+      tracks.push(track('A2_MUSIC', 'Audio', children));
+    } else {
+      const musicDuration = Math.min(reel.music.targetDurationSec, total);
+      tracks.push(track('A2_MUSIC', 'Audio', [clip('music', musicDuration, fps, options.media?.musicMedia, { launchreel: musicMeta })]));
+    }
   }
 
   return {

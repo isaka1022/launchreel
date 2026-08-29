@@ -6,11 +6,21 @@ import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
 const MAX_BUFFER_BYTES = 20 * 1024 * 1024;
 
+/**
+ * agg squeezes any idle gap longer than `--idle-time-limit` (default 5s), which silently moves
+ * every later frame off the timestamps `ingest` reported. Raising it past any plausible gap keeps
+ * agg's clock equal to the recording's own, which is what an `evidenceRange` is measured in.
+ */
+const IDLE_TIME_LIMIT_SEC = 86_400;
+
 export interface RenderCastOptions {
   castPath: string;
   outGifPath: string;
+  /** Both bounds are seconds in agg's output timeline, i.e. already divided by `speed`. */
   fromSec?: number;
   toSec?: number;
+  /** Playback rate; agg divides every frame timestamp by it. */
+  speed?: number;
   theme?: string;
   fontSize?: number;
   cols?: number;
@@ -29,6 +39,8 @@ export async function renderCast(options: RenderCastOptions): Promise<void> {
 
   // The GIF's own last-frame-duration would otherwise pad the clip by 3s (agg's default).
   args.push('--last-frame-duration', '0');
+  args.push('--idle-time-limit', String(IDLE_TIME_LIMIT_SEC));
+  if (options.speed !== undefined) args.push('--speed', String(options.speed));
   if (options.theme !== undefined) args.push('--theme', options.theme);
   if (options.fontSize !== undefined) args.push('--font-size', String(options.fontSize));
   if (options.cols !== undefined) args.push('--cols', String(options.cols));

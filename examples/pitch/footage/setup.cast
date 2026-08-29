@@ -1,0 +1,13 @@
+{"version":3,"term":{"cols":88,"rows":22},"timestamp":1787987266,"command":"zsh /tmp/setup-demo.sh","env":{"SHELL":"/bin/zsh"}}
+[0.008, "o", "\u001b[38;5;250m$\u001b[0m npm run build\r\n"]
+[0.948, "o", "\r\n> launchreel@0.1.0 build\r\n> tsc -p tsconfig.build.json\r\n\r\n"]
+[0.000, "o", "\u001b[1G"]
+[0.001, "o", "\u001b[0K"]
+[0.189, "o", "\u001b[1G\u001b[0K⠙"]
+[0.000, "o", "\u001b[1G"]
+[0.000, "o", "\u001b[0K"]
+[1.210, "o", "\u001b[38;5;250m$\u001b[0m npm test\r\n"]
+[4.162, "o", "\r\n Test Files  11 passed (11)\r\n      Tests  73 passed (73)\r\n   Start at  09:07:50\r\n   Duration  2.90s (transform 709ms, setup 0ms, import 1.31s, tests 4.48s, environment 1ms)\r\n\r\n"]
+[1.406, "o", "\u001b[38;5;250m$\u001b[0m npm run gate\r\n"]
+[13.842, "o", "> tsx scripts/gate.ts\r\n\r\n[PASS] G1 plan — M3 emits an IR that validates against the schema\r\n       8 shots, 2 attempt(s)\r\n[PASS] G3 emit — hand-written IR -> OTIO -> otiotool --stats reads it\r\n       otiotool --stats read the round-tripped timeline\r\n[PASS] G4 score — analyze.py measures beats/segments on a rendered track\r\n       259 beats, 132.5 BPM, 6 segments\r\n[PASS] G5 build — examples/self builds end-to-end, mp4 duration matches the reel\r\n       mp4 45.53s matches the reel (expected 45.46s)\r\n[PASS] G6 cli — the published binary runs when reached through a symlink\r\n       ran through <tmp>/launchreel and produced output\r\n"]
+[2.207, "x", "0"]

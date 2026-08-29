@@ -1,4 +1,5 @@
-import { shotSpans, type NarrationLine, type Reel, type Shot, type ShotSpan } from './schema.js';
+import { MIN_SHOT_SPEED, shotSpans, shotSpeed, type NarrationLine, type Reel, type Shot, type ShotSpan } from './schema.js';
+import type { TimeSpan } from '../ingest/activity.js';
 import { charsPerSecond, estimateSpeechSeconds } from '../speech-rate.js';
 
 /**
@@ -196,4 +197,239 @@ export function compressToFit(report: FitReport, maxAtempo: number = DEFAULT_MAX
   });
 
   return { ...report, lines, needsRewrite: lines.some((l) => l.tier === 'needs-rewrite') };
+}
+
+/**
+ * The other half of fitting: once narration has decided how long a shot has to be, slow its
+ * footage down enough to actually fill it, instead of running out and freezing on the last frame.
+ * Only ever slows a shot — speeding one up would cut footage the model chose to show. Speeds are
+ * floored at `MIN_SHOT_SPEED`; past that the footage genuinely cannot carry the shot and a held
+ * frame is the honest result.
+ */
+/**
+ * The model chooses where a shot starts — the moment its screen begins drawing. How much to play
+ * from there is arithmetic, not judgement, so the range is grown to cover the shot instead of
+ * being left as the sliver the onset itself occupies. Never shrinks a range, never runs past the
+ * end of the recording.
+ */
+export function extendRangeToShot(reel: Reel, sourceDurations: Map<string, number>): Reel {
+  const shots = reel.shots.map((shot) => {
+    const range = shot.evidenceRange;
+    if (range === undefined || shot.source === undefined) return shot;
+    const sourceEnd = sourceDurations.get(shot.source);
+    if (sourceEnd === undefined) return shot;
+    const needed = range[0] + shot.durationSec * (shot.speed ?? 1);
+    const end = Math.min(Math.max(range[1], needed), sourceEnd);
+    return end > range[1] ? { ...shot, evidenceRange: [range[0], end] as [number, number] } : shot;
+  });
+  return { ...reel, shots };
+}
+
+export function stretchFootageToShots(reel: Reel, minSpeed: number = MIN_SHOT_SPEED): Reel {
+  const shots = reel.shots.map((shot): Shot => {
+    if (!shot.evidenceRange) return shot;
+    const covering = (shot.evidenceRange[1] - shot.evidenceRange[0]) / shot.durationSec;
+    if (covering >= shotSpeed(shot)) return shot;
+    return { ...shot, speed: Math.max(minSpeed, Math.floor(covering * 100) / 100) };
+  });
+  return { ...reel, shots };
+}
+
+/**
+ * A shot should open just before the screen starts drawing, so the viewer sees text arrive
+ * rather than a page that finished printing before the cut. This is the lead-in kept ahead of
+ * that moment: long enough to register the cut, short enough not to read as a dead beat.
+ */
+export const ONSET_LEAD_SEC = 0.4;
+
+/** How far off the onset a shot may already sit before it is worth moving. */
+export const ONSET_TOLERANCE_SEC = 0.5;
+
+/**
+ * Held past the end of the stretch a shot opens on. A terminal draws its output in a single
+ * frame at the very end of that stretch, so a range that stops there renders the screen as it
+ * was *before* the output — the command line and a cursor, and nothing else.
+ */
+export const ONSET_TAIL_SEC = 1;
+
+/** A range is never shortened below this, so a snapped shot still has something to play. */
+const MIN_RANGE_SEC = 0.5;
+
+export interface SourceTiming {
+  /** Stretches of this recording a shot may open on. */
+  spans: TimeSpan[];
+  durationSec: number;
+}
+
+export interface OnsetAlignment {
+  shotId: string;
+  /**
+   * Seconds between the shot's first frame and the moment the screen starts drawing. Negative
+   * means the shot opens that long before text appears; positive means it opens that far into a
+   * stretch already in progress. Undefined when nothing after the range start ever draws.
+   */
+  offsetSec: number | undefined;
+}
+
+/** Where each footage shot sits relative to the moment its screen starts drawing. */
+export function onsetAlignments(reel: Reel, timingBySource: Map<string, SourceTiming>): OnsetAlignment[] {
+  const soleSource = timingBySource.size === 1 ? [...timingBySource.keys()][0] : undefined;
+
+  return reel.shots.flatMap((shot): OnsetAlignment[] => {
+    if (!shot.evidenceRange) return [];
+    const timing = timingFor(shot, timingBySource, soleSource);
+    if (timing === undefined) return [];
+    const onset = onsetFor(shot.evidenceRange[0], timing.spans);
+    return [{ shotId: shot.id, offsetSec: onset === undefined ? undefined : shot.evidenceRange[0] - onset }];
+  });
+}
+
+/**
+ * Moves each footage shot's `evidenceRange` so it opens just before its screen starts drawing —
+ * forward off dead air the shot would otherwise sit in, or back to the start of a stretch it
+ * joined halfway through. Only the range start moves, so no shot loses the material it was
+ * chosen for.
+ */
+export function snapRangeToOnset(reel: Reel, timingBySource: Map<string, SourceTiming>): Reel {
+  const soleSource = timingBySource.size === 1 ? [...timingBySource.keys()][0] : undefined;
+
+  const shots = reel.shots.map((shot): Shot => {
+    if (!shot.evidenceRange) return shot;
+    const timing = timingFor(shot, timingBySource, soleSource);
+    if (timing === undefined) return shot;
+
+    const [from, to] = shot.evidenceRange;
+    const span = spanFor(from, timing.spans);
+    if (span === undefined) return shot;
+
+    const start = Math.abs(from - span.startSec) <= ONSET_TOLERANCE_SEC ? from : Math.max(0, span.startSec - ONSET_LEAD_SEC);
+    const end = Math.min(timing.durationSec, Math.max(to, span.endSec + ONSET_TAIL_SEC));
+    if (end - start < MIN_RANGE_SEC) return shot;
+    if (start === from && end === to) return shot;
+    return { ...shot, evidenceRange: [start, end] };
+  });
+
+  return { ...reel, shots };
+}
+
+/** Shots that show what an earlier shot already showed, which reads as a repeat rather than a cut. */
+export function repeatedRangeAdvisories(reel: Reel, minOverlapRatio: number = REPEAT_OVERLAP_RATIO): string[] {
+  const seen: { shotId: string; source: string; range: readonly [number, number] }[] = [];
+  const advisories: string[] = [];
+
+  for (const shot of reel.shots) {
+    const range = shot.evidenceRange;
+    if (range === undefined) continue;
+    const source = shot.source ?? '';
+
+    const earlier = seen.find(
+      (other) => other.source === source && overlapRatio(other.range, range) >= minOverlapRatio,
+    );
+    if (earlier !== undefined) {
+      advisories.push(
+        `shot "${shot.id}" shows [${range[0].toFixed(2)}, ${range[1].toFixed(2)}] of "${source}", which shot ` +
+          `"${earlier.shotId}" already showed — move it to a stretch of the recording no other shot uses`,
+      );
+    }
+    seen.push({ shotId: shot.id, source, range });
+  }
+  return advisories;
+}
+
+/** Shots that do not open on the screen starting to draw, phrased as the fix the model has to make. */
+export function onsetAdvisories(reel: Reel, timingBySource: Map<string, SourceTiming>): string[] {
+  const soleSource = timingBySource.size === 1 ? [...timingBySource.keys()][0] : undefined;
+  const advisories: string[] = [];
+
+  for (const shot of reel.shots) {
+    const range = shot.evidenceRange;
+    if (range === undefined) continue;
+    const timing = timingFor(shot, timingBySource, soleSource);
+    if (timing === undefined) continue;
+
+    const onset = onsetFor(range[0], timing.spans);
+    if (onset === undefined) {
+      advisories.push(`shot "${shot.id}" starts at ${range[0].toFixed(2)}s of "${shot.source ?? ''}", after which nothing is ever drawn`);
+      continue;
+    }
+    const offset = range[0] - onset;
+    if (Math.abs(offset) <= ONSET_TOLERANCE_SEC) continue;
+
+    advisories.push(
+      offset > 0
+        ? `shot "${shot.id}" joins "${shot.source ?? ''}" ${offset.toFixed(2)}s after the screen started drawing at ${onset.toFixed(2)}s — start it there instead`
+        : `shot "${shot.id}" opens on ${(-offset).toFixed(2)}s of a screen that is not moving; the next thing drawn is at ${onset.toFixed(2)}s — start it there instead`,
+    );
+  }
+  return advisories;
+}
+
+/** Overlap of two ranges as a share of the shorter one. */
+const REPEAT_OVERLAP_RATIO = 0.75;
+
+function overlapRatio(a: readonly [number, number], b: readonly [number, number]): number {
+  const shorter = Math.min(a[1] - a[0], b[1] - b[0]);
+  if (shorter <= 0) return 0;
+  return Math.max(0, Math.min(a[1], b[1]) - Math.max(a[0], b[0])) / shorter;
+}
+
+function timingFor(shot: Shot, timingBySource: Map<string, SourceTiming>, soleSource: string | undefined): SourceTiming | undefined {
+  const sourceId = shot.source ?? soleSource;
+  return sourceId === undefined ? undefined : timingBySource.get(sourceId);
+}
+
+/** The stretch of drawing a range beginning at `fromSec` belongs to: the one it is inside, else the next. */
+function spanFor(fromSec: number, spans: TimeSpan[]): TimeSpan | undefined {
+  return spans.find((span) => fromSec < span.endSec);
+}
+
+function onsetFor(fromSec: number, spans: TimeSpan[]): number | undefined {
+  return spanFor(fromSec, spans)?.startSec;
+}
+
+export interface MotionBreakdown {
+  totalSec: number;
+  /** On-screen seconds filled by a shot's own footage rather than a held frame. */
+  footageSec: number;
+  /** On-screen seconds where the recording behind the shot actually redraws — footage minus its own dead air. */
+  changingSec: number;
+  /** Everything else: held frames, cards, stills. */
+  heldSec: number;
+}
+
+/**
+ * What the finished reel actually shows. `footageSec` is what the fitter can see; `changingSec`
+ * is the part a viewer reads as motion, because a range laid over a pause in the recording plays
+ * back as still as a held frame does.
+ */
+export function motionBreakdown(reel: Reel, activeBySource: Map<string, TimeSpan[]>): MotionBreakdown {
+  const soleSource = activeBySource.size === 1 ? [...activeBySource.keys()][0] : undefined;
+  let totalSec = 0;
+  let footageSec = 0;
+  let changingSec = 0;
+
+  for (const shot of reel.shots) {
+    totalSec += shot.durationSec;
+    const range = shot.evidenceRange;
+    if (range === undefined) continue;
+
+    const speed = shotSpeed(shot);
+    const played = Math.min(shot.durationSec, (range[1] - range[0]) / speed);
+    footageSec += played;
+
+    const sourceId = shot.source ?? soleSource;
+    const active = sourceId === undefined ? undefined : activeBySource.get(sourceId);
+    if (active === undefined) continue;
+    changingSec += overlapSec(range[0], range[0] + played * speed, active) / speed;
+  }
+
+  return { totalSec, footageSec, changingSec, heldSec: totalSec - footageSec };
+}
+
+function overlapSec(fromSec: number, toSec: number, spans: TimeSpan[]): number {
+  let sum = 0;
+  for (const span of spans) {
+    sum += Math.max(0, Math.min(toSec, span.endSec) - Math.max(fromSec, span.startSec));
+  }
+  return sum;
 }

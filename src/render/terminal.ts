@@ -4,7 +4,7 @@ import { renderCast } from '../drivers/agg.js';
 import { runFfmpeg, runFfmpegCapture } from '../drivers/ffmpeg.js';
 import { probeDurationSec, probeVideoDimensions } from '../drivers/probe.js';
 import { cacheKey } from '../order/media.js';
-import type { Shot } from '../timeline/schema.js';
+import { shotSpeed, type Shot } from '../timeline/schema.js';
 
 /**
  * Renders a `terminal`/`screencast` shot's evidenceRange to GIF via `agg`, then transcodes to an
@@ -62,12 +62,14 @@ export async function renderTerminalShot(shot: Shot, options: RenderShotOptions)
   const fontSize = options.fontSize ?? DEFAULT_FONT_SIZE;
   if (!existsSync(options.outDir)) mkdirSync(options.outDir, { recursive: true });
 
-  const [fromSec, toSec] = shot.evidenceRange;
+  const speed = shotSpeed(shot);
+  const [fromSec, toSec] = selectRangeForSpeed(shot.evidenceRange, speed);
   const key = cacheKey([
     shot.id,
     shot.kind,
     fromSec,
     toSec,
+    speed,
     shot.durationSec,
     fps,
     theme,
@@ -79,12 +81,11 @@ export async function renderTerminalShot(shot: Shot, options: RenderShotOptions)
   if (existsSync(outPath)) return { path: outPath, durationSec: await probeDurationSec(outPath) };
 
   const gifPath = join(options.outDir, `${shot.id}-${key}-src.gif`);
-  await renderCast({ castPath: options.castPath, outGifPath: gifPath, fromSec, toSec, theme, fontSize });
+  await renderCast({ castPath: options.castPath, outGifPath: gifPath, fromSec, toSec, speed, theme, fontSize });
 
   try {
-    const rawDurationSec = await probeDurationSec(gifPath);
     const cropRect = await detectContentCrop(gifPath);
-    await transcodeNormalized(gifPath, outPath, shot.durationSec, rawDurationSec, fps, options.width, cropRect);
+    await transcodeNormalized(gifPath, outPath, shot.durationSec, fps, options.width, cropRect);
   } finally {
     try {
       unlinkSync(gifPath);
@@ -96,6 +97,11 @@ export async function renderTerminalShot(shot: Shot, options: RenderShotOptions)
   const durationSec = await probeDurationSec(outPath);
   verifyDuration(shot.id, shot.durationSec, durationSec);
   return { path: outPath, durationSec };
+}
+
+/** agg's `--select` reads its own post-speed timeline, so a range measured in source seconds is divided by the speed. */
+export function selectRangeForSpeed(range: readonly [number, number], speed: number): [number, number] {
+  return [range[0] / speed, range[1] / speed];
 }
 
 export interface CropRect {
@@ -169,20 +175,22 @@ function roundDownToEven(n: number): number {
   return n - (n % 2);
 }
 
+/**
+ * A GIF's declared duration cannot be trusted to the frame — agg gives its last frame a padded
+ * delay — so the last frame is always cloned past the target and `-t` makes the cut. Clips whose
+ * footage already runs long are unaffected: the padding lands after the point ffmpeg stops.
+ */
 async function transcodeNormalized(
   inPath: string,
   outPath: string,
   targetSec: number,
-  sourceSec: number,
   fps: number,
   width: number | undefined,
   cropRect: CropRect | undefined,
 ): Promise<void> {
   const scaleFilter = width !== undefined ? `scale=${width}:-2` : 'scale=trunc(iw/2)*2:trunc(ih/2)*2';
   const filters = cropRect ? [`crop=${cropRect.w}:${cropRect.h}:${cropRect.x}:${cropRect.y}`, scaleFilter] : [scaleFilter];
-  if (sourceSec < targetSec) {
-    filters.push(`tpad=stop_mode=clone:stop_duration=${(targetSec - sourceSec).toFixed(3)}`);
-  }
+  filters.push(`tpad=stop_mode=clone:stop_duration=${targetSec.toFixed(3)}`);
 
   await runFfmpeg([
     '-y',

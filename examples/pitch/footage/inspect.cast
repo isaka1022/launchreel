@@ -1,0 +1,8 @@
+{"version":3,"term":{"cols":88,"rows":22},"timestamp":1787990061,"command":"zsh /tmp/plan-demo.sh","env":{"SHELL":"/bin/zsh"}}
+[0.007, "o", "\u001b[38;5;250m$\u001b[0m launchreel ingest examples/self/demo.cast | head -14\r\n"]
+[0.774, "o", "{\r\n  \"source\": \"cast\",\r\n  \"durationSec\": 16.85,\r\n  \"cols\": 88,\r\n  \"rows\": 20,\r\n  \"evidence\": [\r\n    {\r\n      \"t\": 0.011,\r\n      \"kind\": \"command\",\r\n      \"text\": \"launchreel build examples/self --offline -o out\"\r\n    },\r\n    {\r\n      \"t\": 0.874,\r\n      \"kind\": \"output\",\r\n"]
+[2.009, "o", "\u001b[38;5;250m$\u001b[0m launchreel fit /tmp/clean-offline/reel.json\r\n"]
+[0.764, "o", "fit: 8 shots, 8 lines\r\n  s1  4.24s → 5.17s   extended\r\n  s2  5.95s → 6.96s   extended\r\n  s3  7.71s → 9.03s   extended\r\n  s4  5.11s → 5.89s   extended\r\n  s5  8.46s → 8.46s   fits\r\n  s6  5.99s → 5.99s   fits\r\n  s7  6.35s → 6.35s   fits\r\n  s8  3.41s → 3.74s   extended\r\n  total 47.21s → 51.58s\r\n  needs rewrite: none\r\n"]
+[2.408, "o", "\u001b[38;5;250m$\u001b[0m head -18 /tmp/clean-offline/reel.json\r\n"]
+[0.706, "o", "{\r\n  \"version\": \"launchreel/1\",\r\n  \"title\": \"From terminal capture to polished Reel — in one command\",\r\n  \"fps\": 30,\r\n  \"shots\": [\r\n    {\r\n      \"id\": \"s1\",\r\n      \"kind\": \"card\",\r\n      \"durationSec\": 4.235374,\r\n      \"label\": \"Title card\",\r\n      \"card\": {\r\n        \"title\": \"From terminal capture to polished Reel — in one command\",\r\n        \"subtitle\": \"launchreel // build • narrate • score • assemble\"\r\n      }\r\n    },\r\n    {\r\n      \"id\": \"s2\",\r\n      \"kind\": \"terminal\",\r\n"]
+[2.210, "x", "0"]

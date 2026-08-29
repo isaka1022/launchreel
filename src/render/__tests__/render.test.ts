@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { renderCard } from '../card.js';
 import { renderShots } from '../index.js';
-import { lastDetectedRect, padAndClampCrop, renderTerminalShot } from '../terminal.js';
+import { lastDetectedRect, padAndClampCrop, renderTerminalShot, selectRangeForSpeed } from '../terminal.js';
 import type { Reel, Shot } from '../../timeline/schema.js';
 
 /**
@@ -160,5 +160,13 @@ describe('renderShots', () => {
     };
 
     await expect(renderShots(reel, { outDir })).rejects.toThrow(/generated/);
+  });
+});
+
+describe('selectRangeForSpeed', () => {
+  it('aggの--selectは再生速度後のタイムライン基準なので、素材秒をspeedで割る（実測: --speed 2 で総尺は半分になる）', () => {
+    expect(selectRangeForSpeed([8, 16], 1)).toEqual([8, 16]);
+    expect(selectRangeForSpeed([8, 16], 0.5)).toEqual([16, 32]);
+    expect(selectRangeForSpeed([8, 16], 2)).toEqual([4, 8]);
   });
 });

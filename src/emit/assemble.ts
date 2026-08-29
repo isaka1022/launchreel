@@ -1,7 +1,7 @@
 import { listFfmpegFilters, runFfmpeg, runFfmpegCapture } from '../drivers/ffmpeg.js';
 import { probeDurationSec } from '../drivers/probe.js';
 import { DEFAULT_BACKGROUND } from '../render/card.js';
-import { shotSpans, type Reel } from '../timeline/schema.js';
+import { shotSpans, type Reel, type ShotSpan } from '../timeline/schema.js';
 import type { SynthesizedLine } from '../order/speech.js';
 
 /**
@@ -17,6 +17,8 @@ const DEFAULT_WIDTH = 1920;
 const DEFAULT_HEIGHT = 1080;
 const DEFAULT_XFADE_SEC = 0.25;
 const DEFAULT_MUSIC_FADE_SEC = 1.5;
+/** Overlap where one track hands over to the next. Long enough to read as a change, short enough to stay on the cut. */
+const DEFAULT_MUSIC_CROSSFADE_SEC = 1.5;
 const MIN_XFADE_SEC = 0.02;
 const LOUDNESS_TARGET_LUFS = -16;
 const LOUDNESS_TARGET_TP = -1.5;
@@ -32,13 +34,19 @@ const AUDIO_SAMPLE_RATE = 48000;
 /** How far the assembled mp4's probed duration may drift from the crossfade-adjusted expectation. */
 export const DURATION_TOLERANCE_SEC = 0.2;
 
+export interface MusicPlacement {
+  path: string;
+  startSec: number;
+}
+
 export interface AssembleOptions {
   shots: Map<string, { path: string; durationSec: number }>;
   narration?: SynthesizedLine[];
   narrationAt?: Map<string, number>;
   /** Per-line atempo (>1 speeds up); comes from fit's 'compressed' tier. Applied before adelay. */
   atempoByLine?: Map<string, number>;
-  musicPath?: string;
+  /** Tracks laid end to end, in order. `startSec` is on the reel's nominal (pre-crossfade) timeline. */
+  music?: MusicPlacement[];
   outPath: string;
   fps?: number;
   width?: number;
@@ -160,6 +168,61 @@ export function musicFilterChain(inputIndex: number, targetDurationSec: number, 
   return { filter, label: 'musicraw' };
 }
 
+export interface MusicInput {
+  inputIndex: number;
+  /** On-timeline seconds this track is responsible for, before any crossfade overlap. */
+  durationSec: number;
+}
+
+/**
+ * Lays several tracks end to end with a crossfade at each handover. Every track but the last is
+ * padded to its own span *plus* one crossfade, because `acrossfade` consumes that overlap from the
+ * outgoing track — so the fade begins exactly on the cut the handover was planned for, and the
+ * chain still totals `targetDurationSec`.
+ */
+export function crossfadedMusicFilterChain(
+  inputs: MusicInput[],
+  targetDurationSec: number,
+  fadeSec: number,
+  crossfadeSec: number,
+): FilterChain {
+  const crossfade = Math.max(0, Math.min(crossfadeSec, ...inputs.map((i) => i.durationSec / 2)));
+  const parts: string[] = [];
+
+  inputs.forEach((input, i) => {
+    const span = i === inputs.length - 1 ? input.durationSec : input.durationSec + crossfade;
+    parts.push(
+      `[${input.inputIndex}:a]aformat=sample_rates=${AUDIO_SAMPLE_RATE}:channel_layouts=stereo,` +
+        `apad=whole_dur=${span.toFixed(3)}s,atrim=0:${span.toFixed(3)}[mus${i}]`,
+    );
+  });
+
+  let cur = 'mus0';
+  for (let i = 1; i < inputs.length; i++) {
+    const next = `musx${i}`;
+    parts.push(`[${cur}][mus${i}]acrossfade=d=${crossfade.toFixed(3)}:c1=tri:c2=tri[${next}]`);
+    cur = next;
+  }
+
+  const fade = Math.max(0, Math.min(fadeSec, targetDurationSec / 2));
+  parts.push(
+    `[${cur}]apad=whole_dur=${targetDurationSec.toFixed(3)}s,atrim=0:${targetDurationSec.toFixed(3)},` +
+      `afade=t=in:st=0:d=${fade.toFixed(3)},afade=t=out:st=${(targetDurationSec - fade).toFixed(3)}:d=${fade.toFixed(3)}[musicraw]`,
+  );
+  return { filter: parts.join(';'), label: 'musicraw' };
+}
+
+/** On-timeline span each track covers: up to the next track's start, or the end of the reel. */
+export function musicSpans(startSecs: number[], totalDurationSec: number): number[] {
+  return startSecs.map((startSec, i) => (startSecs[i + 1] ?? totalDurationSec) - startSec);
+}
+
+/** Index of the shot playing at `atSec`, so a nominal time can be shifted by the crossfades before it. */
+export function shotIndexAtSec(spans: ShotSpan[], atSec: number): number {
+  const index = spans.findIndex((span) => atSec >= span.start && atSec < span.end);
+  return index === -1 ? Math.max(0, spans.length - 1) : index;
+}
+
 export interface NarrationInterval {
   start: number;
   end: number;
@@ -249,6 +312,14 @@ function loudnormApplyFilter(stats: LoudnormStats): string {
   );
 }
 
+/** A single track has no handover to make, so it takes the simpler chain. */
+function buildMusicChain(inputBase: number, startSecs: number[], totalSec: number): FilterChain | undefined {
+  if (startSecs.length === 0) return undefined;
+  if (startSecs.length === 1) return musicFilterChain(inputBase, totalSec, DEFAULT_MUSIC_FADE_SEC);
+  const inputs = musicSpans(startSecs, totalSec).map((durationSec, i) => ({ inputIndex: inputBase + i, durationSec }));
+  return crossfadedMusicFilterChain(inputs, totalSec, DEFAULT_MUSIC_FADE_SEC, DEFAULT_MUSIC_CROSSFADE_SEC);
+}
+
 export async function assembleReel(reel: Reel, options: AssembleOptions): Promise<{ path: string; durationSec: number }> {
   if (reel.shots.length === 0) throw new Error('assembleReel: reel has no shots');
 
@@ -294,11 +365,12 @@ export async function assembleReel(reel: Reel, options: AssembleOptions): Promis
   const narrationInputBase = shotInputs.length;
   for (const n of narrationResolved) inputArgs.push('-i', n.path);
 
-  let musicInputIndex: number | undefined;
-  if (options.musicPath !== undefined) {
-    musicInputIndex = shotInputs.length + narrationResolved.length;
-    inputArgs.push('-i', options.musicPath);
-  }
+  const musicInputBase = shotInputs.length + narrationResolved.length;
+  const musicPlacements = options.music ?? [];
+  const musicStarts = musicPlacements.map((placement) =>
+    Math.max(0, placement.startSec - shotIndexAtSec(nominalSpans, placement.startSec) * xfadeSec),
+  );
+  for (const placement of musicPlacements) inputArgs.push('-i', placement.path);
 
   const filters = await listFfmpegFilters();
   const hasSidechain = filters.has('sidechaincompress');
@@ -306,7 +378,7 @@ export async function assembleReel(reel: Reel, options: AssembleOptions): Promis
   const narrChain = narrationFilterChain(
     narrationResolved.map((n, i) => ({ inputIndex: narrationInputBase + i, delayMs: Math.round(n.atSec * 1000), atempo: n.atempo })),
   );
-  const musicChain = musicInputIndex !== undefined ? musicFilterChain(musicInputIndex, totalSec, DEFAULT_MUSIC_FADE_SEC) : undefined;
+  const musicChain = buildMusicChain(musicInputBase, musicStarts, totalSec);
   const narrationIntervals = narrationResolved.map((n) => ({ start: n.atSec, end: n.atSec + n.durationSec }));
   const mix = duckAndMix(musicChain?.label, narrChain.label, hasSidechain, narrationIntervals);
 

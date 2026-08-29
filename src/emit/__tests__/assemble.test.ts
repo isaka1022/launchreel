@@ -7,11 +7,14 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   assembleReel,
   clampXfade,
+  crossfadedMusicFilterChain,
   duckAndMix,
   expectedAssembledDurationSec,
   musicFilterChain,
+  musicSpans,
   narrationFilterChain,
   parseLoudnormStats,
+  shotIndexAtSec,
   shotStartOffsets,
   videoFilterChain,
 } from '../assemble.js';
@@ -112,6 +115,56 @@ describe('musicFilterChain', () => {
   it('曲より総尺が短い場合はフェード長を総尺の半分に切り詰める', () => {
     const chain = musicFilterChain(5, 2, 1.5);
     expect(chain.filter).toContain('d=1.000');
+  });
+});
+
+describe('musicSpans / shotIndexAtSec', () => {
+  it('各曲は次の曲の開始まで、最後の曲はリール終端までを受け持つ', () => {
+    expect(musicSpans([0, 60, 110], 150)).toEqual([60, 50, 40]);
+  });
+
+  it('曲の開始位置がどのショットに乗るかを返し、終端を越えたら最後のショットに寄せる', () => {
+    const spans = [
+      { shotId: 'a', start: 0, end: 10 },
+      { shotId: 'b', start: 10, end: 25 },
+    ];
+    expect(shotIndexAtSec(spans, 0)).toBe(0);
+    expect(shotIndexAtSec(spans, 10)).toBe(1);
+    expect(shotIndexAtSec(spans, 99)).toBe(1);
+  });
+});
+
+describe('crossfadedMusicFilterChain', () => {
+  it('曲をacrossfadeで繋ぎ、受け渡し分を足しても総尺が変わらない', () => {
+    const chain = crossfadedMusicFilterChain(
+      [
+        { inputIndex: 4, durationSec: 60 },
+        { inputIndex: 5, durationSec: 40 },
+      ],
+      100,
+      1.5,
+      1.5,
+    );
+
+    // 前の曲だけクロスフェード分だけ長く保持し、acrossfadeがその重なりを食う
+    expect(chain.filter).toContain('apad=whole_dur=61.500s');
+    expect(chain.filter).toContain('apad=whole_dur=40.000s');
+    expect(chain.filter).toContain('[mus0][mus1]acrossfade=d=1.500');
+    expect(chain.filter).toContain('atrim=0:100.000');
+    expect(chain.label).toBe('musicraw');
+  });
+
+  it('短い曲があればクロスフェードをその半分まで縮める', () => {
+    const chain = crossfadedMusicFilterChain(
+      [
+        { inputIndex: 4, durationSec: 2 },
+        { inputIndex: 5, durationSec: 40 },
+      ],
+      42,
+      1.5,
+      1.5,
+    );
+    expect(chain.filter).toContain('acrossfade=d=1.000');
   });
 });
 
