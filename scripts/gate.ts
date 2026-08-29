@@ -25,6 +25,7 @@ import { designReel } from '../src/understand/m3.js';
 const execFileAsync = promisify(execFile);
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const selfDir = join(repoRoot, 'examples', 'self');
+const pitchDir = join(repoRoot, 'examples', 'pitch');
 const XFADE_DURATION_SEC = 0.25;
 const DURATION_TOLERANCE_SEC = 0.2;
 
@@ -176,6 +177,34 @@ async function gate6(): Promise<GateResult> {
   }
 }
 
+/** The long-form example is the README's headline command; a broken fixture must not go unnoticed. */
+async function gate7(offline: boolean): Promise<GateResult> {
+  const name = 'G7 longform — examples/pitch builds from a pitch and several recordings';
+  const dir = mkdtempSync(join(tmpdir(), 'launchreel-gate-g7-'));
+  try {
+    const args = ['build', pitchDir, '-o', dir, '--provider', 'system'];
+    if (offline) args.push('--offline');
+    const result = await runCli(args);
+    if (result.exitCode !== 0) return { name, ok: false, detail: result.stderr.trim() };
+
+    const report = JSON.parse(readFileSync(join(dir, 'reel.report.json'), 'utf8')) as {
+      mp4: { durationSec: number };
+      motion?: { footageSec: number; totalSec: number };
+    };
+    const motion = report.motion;
+    const footageShare = motion ? Math.round((motion.footageSec / motion.totalSec) * 100) : undefined;
+    return {
+      name,
+      ok: true,
+      detail: `mp4 ${report.mp4.durationSec.toFixed(2)}s` + (footageShare !== undefined ? `, ${footageShare}% plays footage` : ''),
+    };
+  } catch (err) {
+    return { name, ok: false, detail: errMessage(err) };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 async function runGate(): Promise<void> {
   const { values } = parseArgs({
     args: process.argv.slice(2),
@@ -190,6 +219,7 @@ async function runGate(): Promise<void> {
   results.push(await gate4(offline));
   results.push(await gate5(offline));
   results.push(await gate6());
+  results.push(await gate7(offline));
 
   let allOk = true;
   for (const result of results) {

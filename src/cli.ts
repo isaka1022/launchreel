@@ -104,7 +104,11 @@ const DEFAULT_MUSIC_CANDIDATES = 3;
 /** A directory holding these two is a long-form project: the argument, and the footage that backs it. */
 const PITCH_FILE_NAME = 'pitch.md';
 const FOOTAGE_DIR_NAME = 'footage';
-const LONG_FORM_DEFAULT_DURATION_SEC = 150;
+/**
+ * Sized to what a handful of terminal recordings can actually carry. Only about a fifth of a
+ * terminal session is the screen changing, so asking for longer buys held frames, not content.
+ */
+const LONG_FORM_DEFAULT_DURATION_SEC = 90;
 /** A long reel is only split when no single render reaches its end; a leftover piece shorter than this is not worth its own track. */
 const MUSIC_MIN_SEGMENT_SEC = 25;
 
