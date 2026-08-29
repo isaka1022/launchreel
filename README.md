@@ -1,101 +1,132 @@
 # LaunchReel
 
-**Turn a terminal recording into a launch video whose cuts land on the beat.**
+**Turn terminal recordings into a product video whose cuts land on the beat — and get the
+editable timeline, not just an mp4.**
 
-You shipped something. Now you need a video about it. LaunchReel reads a recording you already
-know how to make (`asciinema` or `vhs`), works out what actually happened in it, and builds the
-video around that — narration, a generated soundtrack, title cards, cuts.
-
-The part that makes it different is what happens to the audio. MiniMax Music 3.0 cannot be told
-"put an accent at 0:14." It has no editing, no continuation, no seed, and it ignores tempo
-requests. So LaunchReel doesn't ask the model to hit marks. **It generates candidates, measures
-them, and moves the cuts to the beats it actually finds.**
+You shipped something. Now you need a video about it, and that costs you a day you would rather
+spend building. LaunchReel reads recordings you already know how to make (`asciinema` or `vhs`),
+works out what was actually demonstrated, and builds the video around it — narration, a generated
+soundtrack, title cards, cuts.
 
 ```bash
 git clone https://github.com/isaka1022/launchreel && cd launchreel
 npm install && npm run build
-npx launchreel build examples/self --offline
+
+npx launchreel build examples/pitch --offline    # 111s product video from a pitch + 5 recordings
+npx launchreel build examples/self  --offline    # 47s reel from a single recording
 ```
 
-No API key, no network, no Python. That command replays committed fixtures and writes
-`reel.mp4`, `reel.otio` and `reel.report.json` — the same output the numbers below came from.
+No API key, no network, no Python. Both replay committed fixtures and write `reel.mp4`,
+`reel.otio` and `reel.report.json` — the same files the numbers below came from.
 
 ---
 
 ## The soundtrack is measured, not requested
 
-Ask Music 3.0 for a 30-second track at 120 BPM and you get 60 seconds at 83.35 BPM. Complaining
-about that is not a strategy. Measuring it is.
+MiniMax Music 3.0 cannot be told to put an accent at 0:14. It has no seed, no editing, no
+continuation, and it ignores tempo requests — ask for 120 BPM and you get 83.35. Ask twice with
+the same brief and you get two different tracks, of two different lengths.
 
-Each candidate varies the one dimension that actually moves the beat grid — when the pulse
-arrives and how dense it is — and every candidate is analysed with librosa before anything is
-committed to:
+So LaunchReel never asks the model to hit a mark. It generates candidates, measures every one
+with librosa, and moves the cuts onto the beats it actually finds:
 
 ```
-score: 3 candidates
-  track 1   5/5 hits   shift 0.546s   129.2 BPM   <- selected
-  track 2   5/5 hits   shift 0.569s   129.2 BPM
-  track 3   5/5 hits   shift 0.706s   112.3 BPM
-
-  4.498s → beat 4.632   (+0.135)  cut moved onto the beat
- 12.431s → beat 12.481  (+0.049)  already on the beat
- 18.873s → beat 18.959  (+0.086)  already on the beat
- 22.394s → beat 22.198  (-0.196)  cut moved onto the beat
- 26.435s → beat 26.355  (-0.080)  already on the beat
+score: 3 candidates for 0.0-114.6s
+  track 1   105.09s   does not cover   139.7 BPM    9/11 hits
+  track 2   151.31s   covers           129.2 BPM   11/11 hits   <- selected
+  track 3    55.18s   does not cover   107.7 BPM    4/11 hits
 ```
 
-Two cuts were moved. Three were already inside the 120 ms tolerance, so the timeline was left
-alone — moving a cut that is already on the beat only costs you elsewhere. When a cut does move,
-the neighbouring shot absorbs exactly the opposite shift, so **the total duration never changes.**
+Track 1 fit the cuts well and was still rejected: it stops nine seconds before the segment does,
+and cuts that land beautifully from a track that has already ended are worth nothing. Length is
+not a request either — the tracks measured while building this project ran from **32.5s to
+172.9s from the same brief**, so reach is taken from the longest candidate in hand, and a second
+track is only ordered once that one is shown not to reach the end.
+
+When a cut does move, the neighbouring shot absorbs exactly the opposite shift, so **the total
+duration never changes.** Cuts already inside the 120 ms tolerance are left alone — moving a cut
+that is already on the beat only costs you elsewhere.
 
 ### Why there are candidates at all
 
-The first version sent the same request three times, which is the same as not having candidates.
-Measurement is what exposed it:
+The first version sent the same request three times, which is the same as having no candidates.
+Measuring is what exposed it:
 
-| | tempo | first beat | hit points landed |
-|---|---|---|---|
-| single brief | 83.35 BPM | **11.064s** | 4 of 5 |
-| candidates varied | 129.2 BPM | **0.476s** | 5 of 5 |
+| | tempo | first beat |
+|---|---|---|
+| single brief | 83.35 BPM | **11.064s** |
+| candidates varied on pulse onset | 129.2 BPM | **0.476s** |
 
-That track opened with eleven seconds of pads. No amount of snapping can put a beat at 4.5
-seconds in a track whose first beat is at 11. The fix wasn't better snapping — it was asking for
-a different piece of music and having a way to tell which one was better.
+That track opened with eleven seconds of pads. No amount of snapping puts a beat at four seconds
+in a track whose first beat is at eleven. The fix was not better snapping — it was asking for a
+different piece of music and having a way to tell which one was better. The analysis of that
+first track is committed as a test fixture, so the eleven seconds are checkable.
 
 ---
 
 ## The narration sets the timing, not the other way round
 
 Speech 2.8 returns audio of a length you cannot predict from the text. So the reel is not built
-and then narrated. **Every line is synthesized and measured first**, and the timeline is refit
-around what actually came back, through four rungs in order:
+and then narrated: **every line is synthesized and measured first**, and the timeline is refit
+around what came back, through four rungs in order.
 
 1. **stretch the shot** to the measured speech
 2. **hand the line back to M3** with a character budget and re-synthesize just that line
-3. **`atempo`** up to 1.06 — beyond that it stops sounding like a person
+3. **`atempo`** up to 1.06 — past that it stops sounding like a person
 4. **hold the last frame**
 
 Rung 2 is a model call, so `--offline` skips it and says so rather than pretending. Nothing here
-truncates a line silently; if a line still doesn't fit after all four, the report says so.
-
-`reel.report.json` records how each line was closed, so an overrun is never invisible:
+truncates a line silently. `reel.report.json` records how each line was closed:
 
 ```json
-"narrate": { "lines": 7, "speechSec": 27.309, "tiers": { "extended": 5, "fits": 2 } }
+"narrate": { "lines": 13, "speechSec": 83.36, "tiers": { "extended": 9, "fits": 4 } }
 ```
+
+---
+
+## Long-form: a pitch and several recordings
+
+Point `build` at a directory holding `pitch.md` and `footage/` and it makes a product video
+instead of a reel. M3 reads the pitch as the argument the video has to make, and reaches into
+the recordings for the evidence behind each claim.
+
+```bash
+launchreel build examples/pitch                      # or --pitch <file> --footage <a.cast> ...
+```
+
+The honest constraint, which the build prints every run: **a terminal session is mostly still.**
+Across the five recordings shipped here, 56 seconds of material contains about 12 seconds where
+the screen actually changes. That is not a flaw to engineer around — terminal output has to hold
+still long enough to read. What matters is that every shot *opens* on the moment its screen
+starts drawing, so the viewer always arrives just as something appears:
+
+```
+onset:   9/9 shots open on the screen starting to draw (worst off by 0.0s)
+sources: inspect 6.67/6.67s, build 13.08/16.85s, timeline 6.57/6.57s
+motion:  22.26s (19%) of screen actually changes, 55.18s (48%) plays footage, 59.39s (52%) is held
+```
+
+M3 chooses where a shot opens. How much to play from there is arithmetic, so the range is grown
+to cover the shot rather than left as the one-second sliver an onset occupies. Where footage
+still runs short a shot may be slowed, but never below **0.6x** — under that a terminal reads as
+frozen, and a held frame on finished output is honest where a crawl through an empty screen is
+not.
+
+The example targets 90 seconds because that is what its footage carries. Give it more recordings
+and it will use them.
 
 ---
 
 ## What it actually does
 
 ```
-demo.cast
+footage/*.cast  +  pitch.md
    │
    │  ingest — strip ANSI, fold progress-bar redraws, detect prompts and pauses
    ▼
 Evidence[]  { t, kind: command | output | pause, text }
    │
-   │  MiniMax M3 reads the evidence and designs a timeline
+   │  MiniMax M3 reads the pitch and the evidence and designs a timeline
    │  (forced tool call; schema failures are fed straight back to the model)
    ▼
 Reel IR   shots · narration · hit points · music brief
@@ -126,18 +157,12 @@ implementation reads it (`otiotool --stats`), and `otioconvert` turns it into FC
 is what gets it into an NLE. `npm run gate` checks the round trip; opening the result in Resolve
 or Premiere is not something this repo can verify for you.
 
-Every shot arrives as its own clip, narration and music on separate tracks, and **the snapped
-cut points as markers** — so the alignment above isn't a claim in a README, it's something you
-can open a timeline and look at.
-
-Each clip carries its provenance:
+Every shot arrives as its own clip, narration and music on separate tracks, and **the snapped cut
+points as markers** — so the alignment above isn't a claim in a README, it's something you can
+open a timeline and look at. Each clip carries its provenance:
 
 ```json
-"launchreel": {
-  "kind": "terminal",
-  "label": "Running the build",
-  "evidenceRange": [8.0, 12.5]
-}
+"launchreel": { "kind": "terminal", "label": "Running the build", "evidenceRange": [8.0, 12.5] }
 ```
 
 ---
@@ -150,7 +175,7 @@ launchreel plan    <recording>               # → timeline design (MiniMax M3)
 launchreel narrate <reel.json>               # → speech, then refit around measured durations
 launchreel score   <reel.json>               # → music candidates, measured, cuts snapped
 launchreel emit    <reel.json> --otio        # → OpenTimelineIO
-launchreel build   <recording>               # → all of the above, plus the mp4
+launchreel build   <recording|project dir>   # → all of the above, plus the mp4
 ```
 
 Each step writes a file you can inspect and edit by hand before running the next one.
@@ -160,7 +185,8 @@ Each step writes a file you can inspect and edit by hand before running the next
 | `--offline` | Replay committed fixtures. No key, no network, no cost |
 | `--provider system` | Use the OS voice instead of Speech 2.8, for local iteration |
 | `--lang ja` | Japanese narration |
-| `--duration <sec>` | Target length, default 30 |
+| `--duration <sec>` | Target length. 30 for a single recording, 90 for a long-form project |
+| `--pitch` / `--footage` | Long-form inputs, when they aren't laid out as a project directory |
 | `--skip-music` | Build without a soundtrack |
 
 `--offline` fails loudly on a cache miss rather than quietly substituting something else. A
@@ -170,11 +196,11 @@ replay that silently produces a different video isn't a replay.
 
 ## Setup
 
-Building your own recording needs a little more than the offline demo:
+Building from your own recordings needs a little more than the offline demo:
 
 ```bash
 brew install ffmpeg agg librsvg     # render terminals and title cards
-npm install
+npm install && npm run build
 python3 -m venv .venv && ./.venv/bin/pip install -r py/requirements.txt   # librosa, for new music
 ```
 
@@ -193,9 +219,9 @@ prints the value.
 
 | Model | Used for | What it can't do, and how that's handled |
 |---|---|---|
-| **Music 3.0** | Soundtrack | No seed, no editing, no continuation, ignores tempo. Candidates are varied on pulse onset and density, then measured; cuts move to the beats |
+| **Music 3.0** | Soundtrack | No seed, no editing, no continuation, ignores tempo, and returns a length of its own choosing. Candidates are varied on pulse onset and density, measured, filtered to those that cover their segment, then the cuts move to the beats |
 | **Speech 2.8** | Narration | Output length is unpredictable. Measured first, then the timeline is refit around the real durations through four rungs |
-| **MiniMax M3** | Reads the evidence, designs the timeline | Won't reliably emit valid OTIO. Constrained to a small IR via a forced tool call, with schema failures fed back |
+| **MiniMax M3** | Reads the pitch and the evidence, designs the timeline | Won't reliably emit valid OTIO. Constrained to a small IR via a forced tool call, with schema failures fed back |
 
 ---
 
@@ -203,10 +229,10 @@ prints the value.
 
 - **No video generation.** A developer launch video is carried by the thing actually running.
   Generated B-roll is where these videos start to look like every other AI video.
-- **The recording has to be long enough.** Feed it 4 seconds and ask for 30 and you get held
-  frames. LaunchReel warns when a shot is more than half freeze.
+- **A terminal session is mostly still.** About a fifth of one is the screen changing. LaunchReel
+  reports the split every run rather than hiding it.
 - **Speech 2.8 has been returning 503 during MiniMax Week.** Retries with backoff are built in,
-  and the committed example was narrated with the macOS voice for that reason.
+  and the committed examples were narrated with the macOS voice for that reason.
 - **Only tested on macOS.** The `say` fallback is macOS-only; everything else should port.
 
 ---
