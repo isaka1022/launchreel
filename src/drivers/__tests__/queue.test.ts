@@ -23,6 +23,32 @@ describe('submitRequest', () => {
     delete process.env.GMI_API_KEY;
   });
 
+  it('キューに残り続けたリクエストは投げ直して成功する', async () => {
+    const seen: string[] = [];
+    const onRetry = vi.fn();
+    globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        seen.push('post');
+        return fakeResponse({ ok: true, status: 200, body: { request_id: `r${seen.length}`, status: 'queued' } });
+      }
+      const stalls = seen.filter((s) => s === 'post').length === 1;
+      return fakeResponse({
+        ok: true,
+        status: 200,
+        body: stalls ? { request_id: 'r1', status: 'queued' } : { request_id: 'r2', status: 'success', outcome: { audio_url: 'https://example.com/a.mp3' } },
+      });
+    }) as unknown as typeof fetch;
+
+    const result = await submitRequest(
+      'model-x',
+      { text: 'hi' },
+      { pollIntervalMs: 1, pollTimeoutMs: 5, initialBackoffMs: 1, maxBackoffMs: 2, onRetry },
+    );
+
+    expect(result.requestId).toBe('r2');
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
   it('503が2回続いた後200が返るとリトライして成功する', async () => {
     let call = 0;
     const onRetry = vi.fn();
