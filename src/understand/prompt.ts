@@ -5,6 +5,19 @@ import { readableSpans, type TimeSpan } from '../ingest/activity.js';
 import type { FootageItem } from '../ingest/footage.js';
 import type { Evidence, Recording } from '../ingest/types.js';
 import { MAX_SHOT_SPEED, MIN_SHOT_SPEED, reelSchema, shotSchema } from '../timeline/schema.js';
+import { CJK_CHARS_PER_SEC, LATIN_CHARS_PER_SEC } from '../speech-rate.js';
+
+/**
+ * Narration cannot fill a reel end to end — shots need a moment before and after a line, and
+ * cards carry beats of their own. Without a budget the model writes to the argument and a 90s
+ * target comes back as three minutes of speech.
+ */
+const NARRATION_SHARE_OF_REEL = 0.75;
+
+export function narrationBudgetChars(targetDurationSec: number, language: 'en' | 'ja'): number {
+  const rate = language === 'ja' ? CJK_CHARS_PER_SEC : LATIN_CHARS_PER_SEC;
+  return Math.round(targetDurationSec * NARRATION_SHARE_OF_REEL * rate);
+}
 
 /**
  * Builds the tool schema and chat messages handed to MiniMax M3. The schema is derived from
@@ -13,6 +26,8 @@ import { MAX_SHOT_SPEED, MIN_SHOT_SPEED, reelSchema, shotSchema } from '../timel
 
 export interface ToolSchemaOptions {
   allowGenerated: boolean;
+  /** True when the reel is designed against a footage set, so a shot has to name which recording it reads. */
+  multiSource: boolean;
 }
 
 const GENERATED_KIND = 'generated';
@@ -26,7 +41,11 @@ const SHOT_SEC_HARD_MAX = 10;
 const LOOSE_SHOT_AVG_SEC = 6;
 const DENSE_SHOT_AVG_SEC = 4.5;
 
-/** JSON Schema for the `emit_reel` tool call. Drops "generated" from `kind` unless allowed. */
+/**
+ * JSON Schema for the `emit_reel` tool call. Narrowed to what the model is actually allowed to
+ * decide: "generated" is dropped from `kind` unless allowed, `speed` is code's to compute from the
+ * footage it has, and `source` only exists when there is a footage set to choose from.
+ */
 export function buildToolSchema(options: ToolSchemaOptions): unknown {
   const schema = z.toJSONSchema(reelSchema, {
     override: (ctx) => {
@@ -39,7 +58,20 @@ export function buildToolSchema(options: ToolSchemaOptions): unknown {
     },
   });
   delete schema.$schema;
+  const codeOwned = ['speed', ...(options.multiSource ? [] : ['source'])];
+  for (const field of codeOwned) delete shotProperties(schema)[field];
   return schema;
+}
+
+/** The `properties` map of a shot inside a generated reel schema. Throws rather than silently no-op. */
+function shotProperties(schema: Record<string, unknown>): Record<string, unknown> {
+  const path = ['properties', 'shots', 'items', 'properties'];
+  let node: unknown = schema;
+  for (const key of path) {
+    node = (node as Record<string, unknown> | undefined)?.[key];
+  }
+  if (node === null || typeof node !== 'object') throw new Error('reel tool schema has no shot properties to narrow');
+  return node as Record<string, unknown>;
 }
 
 export interface BuildMessagesOptions {
@@ -77,6 +109,8 @@ function buildUserPrompt(recording: Recording, options: BuildMessagesOptions): s
     `Recording duration: ${durationLabel}s`,
     ...(recording.title !== undefined ? [`Recording title: ${recording.title}`] : []),
     `Target reel duration: about ${options.targetDurationSec}s`,
+    `Narration across the whole reel must total at most ${narrationBudgetChars(options.targetDurationSec, options.language)} ` +
+      'characters. Going over makes the reel longer than it was asked for, not denser.',
     '',
     'Evidence (timestamps are seconds from the start of the recording):',
     ...recording.evidence.map(formatEvidence),
@@ -162,6 +196,8 @@ function buildLongFormUserPrompt(pitch: string, footage: FootageItem[], options:
     ]),
     '',
     `Target reel duration: about ${options.targetDurationSec}s, reached with ${minShots}–${maxShots} shots.`,
+    `Narration across the whole reel must total at most ${narrationBudgetChars(options.targetDurationSec, options.language)} ` +
+      'characters. Going over makes the reel longer than it was asked for, not denser.',
     '',
     `There are ${spanTotal} active spans across the ${footage.length} recordings — ${spanTotal} different moments of text appearing, ` +
       'and each one can open a shot. Work through them rather than returning to the same few.',

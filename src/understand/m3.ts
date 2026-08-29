@@ -73,6 +73,7 @@ export async function designReel(recording: Recording, options: DesignOptions = 
   return runDesignLoop({
     messages: buildMessages(recording, { targetDurationSec, language, toolName: TOOL_NAME }),
     validate: (reel) => validateAgainstRecording(reel, recording.durationSec),
+    multiSource: false,
     cachePath: planCachePath(options.cacheDir, 'plan', [recording, targetDurationSec, language, allowGenerated]),
     allowGenerated,
     maxRepairs: options.maxRepairs ?? DEFAULT_MAX_REPAIRS,
@@ -102,6 +103,7 @@ export async function designLongFormReel(
     messages: buildLongFormMessages(pitch, footage, { targetDurationSec, language, toolName: TOOL_NAME }),
     validate: (reel) => validateAgainstFootage(reel, durations),
     advise: (reel) => [...onsetAdvisories(reel, readable), ...repeatedRangeAdvisories(reel)],
+    multiSource: true,
     cachePath: planCachePath(options.cacheDir, 'plan-longform', [
       pitch,
       footage.map((f) => [f.id, f.recording]),
@@ -127,6 +129,8 @@ interface DesignLoop {
   advise?: (reel: Reel) => string[];
   cachePath: string | undefined;
   allowGenerated: boolean;
+  /** Whether the shot schema offers a `source` field — see {@link buildToolSchema}. */
+  multiSource: boolean;
   maxRepairs: number;
   options: DesignOptions;
 }
@@ -134,7 +138,9 @@ interface DesignLoop {
 async function runDesignLoop(loop: DesignLoop): Promise<DesignResult> {
   const { messages, cachePath, options } = loop;
 
-  const promptHash = cacheKey([messages]);
+  const toolSchema = buildToolSchema({ allowGenerated: loop.allowGenerated, multiSource: loop.multiSource });
+  /** Keys everything the model was asked, schema included — narrowing the schema changes the design as surely as the prose does. */
+  const promptHash = cacheKey([messages, toolSchema]);
 
   if (cachePath !== undefined && existsSync(cachePath)) {
     const cached = readCachedDesign(cachePath);
@@ -158,7 +164,7 @@ async function runDesignLoop(loop: DesignLoop): Promise<DesignResult> {
       function: {
         name: TOOL_NAME,
         description: 'Emit the designed Reel timeline.',
-        parameters: buildToolSchema({ allowGenerated: loop.allowGenerated }),
+        parameters: toolSchema,
       },
     },
   ];

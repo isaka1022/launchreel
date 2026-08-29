@@ -165,16 +165,31 @@ describe('プランキャッシュとプロンプトの対応', () => {
 
 describe('buildToolSchema', () => {
   interface ShotToolSchema {
-    properties: { shots: { items: { properties: { kind: { enum: string[] } } } } };
+    properties: { shots: { items: { properties: Record<string, { enum?: string[] }> } } };
   }
 
+  const shotProps = (options: { allowGenerated?: boolean; multiSource?: boolean } = {}) =>
+    (buildToolSchema({ allowGenerated: false, multiSource: false, ...options }) as ShotToolSchema).properties.shots.items
+      .properties;
+
   it('allowGenerated:falseのときkindのenumにgeneratedを含まない', () => {
-    const schema = buildToolSchema({ allowGenerated: false }) as ShotToolSchema;
-    expect(schema.properties.shots.items.properties.kind.enum).not.toContain('generated');
+    expect(shotProps().kind?.enum).not.toContain('generated');
   });
 
   it('allowGenerated:trueのときkindのenumにgeneratedを含む', () => {
-    const schema = buildToolSchema({ allowGenerated: true }) as ShotToolSchema;
-    expect(schema.properties.shots.items.properties.kind.enum).toContain('generated');
+    expect(shotProps({ allowGenerated: true }).kind?.enum).toContain('generated');
+  });
+
+  it('単一録画のときsourceを提示しない', () => {
+    expect(shotProps()).not.toHaveProperty('source');
+  });
+
+  it('複数素材のときだけsourceを提示する', () => {
+    expect(shotProps({ multiSource: true })).toHaveProperty('source');
+  });
+
+  it('speedはコードが決めるのでどちらのモードでも提示しない', () => {
+    expect(shotProps()).not.toHaveProperty('speed');
+    expect(shotProps({ multiSource: true })).not.toHaveProperty('speed');
   });
 });
