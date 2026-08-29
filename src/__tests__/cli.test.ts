@@ -8,7 +8,7 @@ import { totalDurationSec, type Reel } from '../timeline/schema.js';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const castFixture = join(repoRoot, 'src', 'ingest', '__tests__', 'fixtures', 'sample.cast');
-const reelFixture = join(repoRoot, 'examples', 'vhs-demo', 'reel.json');
+const reelFixture = join(repoRoot, 'src', '__tests__', 'fixtures', 'vhs-demo-reel.json');
 
 describe('runIngest', () => {
   it('sample.castをRecording JSONに変換し、stdoutにJSON、stderrにサマリを出す', () => {
@@ -23,7 +23,7 @@ describe('runIngest', () => {
 });
 
 describe('runFit', () => {
-  it('vhs-demoのreelを処理して総尺が伸びる', () => {
+  it('実際のreelを処理して総尺が伸びる', () => {
     const originalReel = JSON.parse(readFileSync(reelFixture, 'utf8')) as Reel;
     const originalTotal = totalDurationSec(originalReel);
 

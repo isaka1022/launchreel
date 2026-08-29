@@ -17,7 +17,7 @@ import { MIN_SHOT_SPEED, reelSchema, shotFootageSec, totalDurationSec, type Reel
 import type { TimeSpan } from '../../ingest/activity.js';
 import type { SourceTiming } from '../fit.js';
 
-const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'examples', 'vhs-demo');
+const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '__tests__', 'fixtures');
 
 function buildReel(): Reel {
   return {
@@ -88,8 +88,8 @@ describe('fitReel', () => {
     expect(fitted.shots).not.toBe(reel.shots);
   });
 
-  it('実際のexamples/vhs-demo/reel.jsonでナレーションの超過が解消される', () => {
-    const raw = JSON.parse(readFileSync(join(fixturesDir, 'reel.json'), 'utf8'));
+  it('実際のreelでナレーションの超過が解消される', () => {
+    const raw = JSON.parse(readFileSync(join(fixturesDir, 'vhs-demo-reel.json'), 'utf8'));
     const reel = reelSchema.parse(raw);
     const originalTotal = totalDurationSec(reel);
 

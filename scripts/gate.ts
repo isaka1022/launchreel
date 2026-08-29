@@ -182,7 +182,7 @@ async function gate7(offline: boolean): Promise<GateResult> {
   const name = 'G7 longform — examples/pitch builds from a pitch and several recordings';
   const dir = mkdtempSync(join(tmpdir(), 'launchreel-gate-g7-'));
   try {
-    const args = ['build', pitchDir, '-o', dir, '--provider', 'system'];
+    const args = ['build', pitchDir, '-o', dir];
     if (offline) args.push('--offline');
     const result = await runCli(args);
     if (result.exitCode !== 0) return { name, ok: false, detail: result.stderr.trim() };

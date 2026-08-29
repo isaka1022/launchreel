@@ -515,7 +515,7 @@ export async function runBuild(argv: string[], options: RunOptions = {}): Promis
     const lang = values.lang ?? 'en';
     if (lang !== 'en' && lang !== 'ja') return errorResult(`invalid --lang value "${lang}": expected "en" or "ja"`);
 
-    const provider = values.provider ?? 'system';
+    const provider = values.provider ?? 'minimax';
     if (provider !== 'minimax' && provider !== 'system') {
       return errorResult(`invalid --provider value "${provider}": expected "minimax" or "system"`);
     }

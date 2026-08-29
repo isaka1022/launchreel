@@ -83,7 +83,9 @@ export async function synthesizeLines(lines: NarrationLine[], options: SpeechOpt
   return results;
 }
 
+/** The queue returns a bare `audio_url` for speech and a `media_urls` list elsewhere; accept both. */
 interface MinimaxTtsOutcome {
+  audio_url?: string;
   media_urls?: { url: string }[];
 }
 
@@ -106,8 +108,11 @@ async function synthesizeMinimax(
   if (speed !== undefined) payload.speed = speed.toFixed(1);
 
   const { outcome } = await submitRequest(TTS_MODEL, payload);
-  const mediaUrl = (outcome as MinimaxTtsOutcome).media_urls?.[0]?.url;
-  if (mediaUrl === undefined) throw new Error(`MiniMax TTS response for line "${line.id}" had no media_urls[0].url`);
+  const result = outcome as MinimaxTtsOutcome;
+  const mediaUrl = result.audio_url ?? result.media_urls?.[0]?.url;
+  if (mediaUrl === undefined) {
+    throw new Error(`MiniMax TTS response for line "${line.id}" carried neither audio_url nor media_urls[0].url`);
+  }
   await downloadToFile(mediaUrl, path);
   appendSpend({ model: TTS_MODEL, kind: 'tts', usd: 0, at: new Date().toISOString(), note: line.id });
 
