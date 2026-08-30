@@ -99,6 +99,9 @@ function buildSystemPrompt(options: BuildMessagesOptions): string {
     languageInstruction,
     'Every "terminal" or "screencast" shot needs an evidenceRange [start, end] in seconds, measured from the start of the recording.',
     "A shot's evidenceRange must lie within the recording's total duration, and its durationSec must not exceed the length of that range — a shot cannot show more footage than exists.",
+    'A recording is always shorter than the reel made from it. Fill the difference with "card" shots, never by holding a terminal on its last frame: ' +
+      'a card standing still reads as punctuation, a frozen terminal reads as a broken video.',
+    'Keep cards a minority of the shots, and never place two back to back.',
     'If the previous call failed validation, fix exactly the problems listed and call the tool again.',
   ].join('\n');
 }
@@ -117,8 +120,23 @@ function buildUserPrompt(recording: Recording, options: BuildMessagesOptions): s
     '',
     `IMPORTANT: the recording is only ${durationLabel}s long. Every evidenceRange must fall within ` +
       `[0, ${durationLabel}], and no shot's durationSec may exceed the span of its own evidenceRange.`,
+    ...cardBudgetLine(recording.durationSec, options.targetDurationSec),
   ];
   return lines.join('\n');
+}
+
+/**
+ * States the arithmetic the model otherwise has to notice on its own: a reel longer than its
+ * recording has seconds that no footage can cover, and those seconds become cards or frozen
+ * terminals. Naming the figure is what stops it choosing the second one.
+ */
+function cardBudgetLine(recordingSec: number, targetDurationSec: number): string[] {
+  const uncovered = targetDurationSec - recordingSec;
+  if (uncovered <= 0) return [];
+  return [
+    `The recording covers ${recordingSec.toFixed(2)}s of a ${targetDurationSec}s reel, so at least ` +
+      `${uncovered.toFixed(2)}s has no footage behind it. Spend those seconds on cards.`,
+  ];
 }
 
 /**
