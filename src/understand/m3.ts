@@ -3,12 +3,12 @@ import { dirname, join } from 'node:path';
 import { chatCompletion, type ChatMessage, type ChatResponse, type ToolCall } from '../drivers/gmi.js';
 import { readableSpans } from '../ingest/activity.js';
 import { footageDurations, type FootageItem } from '../ingest/footage.js';
-import { onsetAdvisories, repeatedRangeAdvisories } from '../timeline/fit.js';
+import { narrationBudgetAdvisories, onsetAdvisories, repeatedRangeAdvisories } from '../timeline/fit.js';
 import type { Recording } from '../ingest/types.js';
 import { cacheKey } from '../order/media.js';
 import { formatZodIssues } from '../report.js';
 import { reelSchema, type Reel, validateAgainstFootage, validateAgainstRecording, validateReel } from '../timeline/schema.js';
-import { buildLongFormMessages, buildMessages, buildToolSchema } from './prompt.js';
+import { buildLongFormMessages, buildMessages, buildToolSchema, narrationBudgetChars } from './prompt.js';
 
 /**
  * Turns evidence into a validated Reel by calling MiniMax M3 with a forced tool call, then
@@ -32,6 +32,11 @@ const LONG_FORM_TIMEOUT_MS = 900_000;
  * attempt hits the same wall.
  */
 const DESIGN_MAX_COMPLETION_TOKENS = 32_768;
+/**
+ * How many attempts may be spent on quality complaints rather than validation failures. One round
+ * per group, so the model gets a single instruction at a time and the important one is not diluted.
+ */
+const MAX_ADVISORY_ROUNDS = 2;
 
 export interface DesignOptions {
   targetDurationSec?: number;
@@ -73,6 +78,7 @@ export async function designReel(recording: Recording, options: DesignOptions = 
   return runDesignLoop({
     messages: buildMessages(recording, { targetDurationSec, language, toolName: TOOL_NAME }),
     validate: (reel) => validateAgainstRecording(reel, recording.durationSec),
+    advise: (reel) => [narrationBudgetAdvisories(reel, narrationBudgetChars(targetDurationSec, language))],
     multiSource: false,
     cachePath: planCachePath(options.cacheDir, 'plan', [recording, targetDurationSec, language, allowGenerated]),
     allowGenerated,
@@ -102,7 +108,10 @@ export async function designLongFormReel(
   return runDesignLoop({
     messages: buildLongFormMessages(pitch, footage, { targetDurationSec, language, toolName: TOOL_NAME }),
     validate: (reel) => validateAgainstFootage(reel, durations),
-    advise: (reel) => [...onsetAdvisories(reel, readable), ...repeatedRangeAdvisories(reel)],
+    advise: (reel) => [
+      narrationBudgetAdvisories(reel, narrationBudgetChars(targetDurationSec, language)),
+      [...onsetAdvisories(reel, readable), ...repeatedRangeAdvisories(reel)],
+    ],
     multiSource: true,
     cachePath: planCachePath(options.cacheDir, 'plan-longform', [
       pitch,
@@ -125,8 +134,12 @@ interface DesignLoop {
   messages: ChatMessage[];
   /** Checks the reel against whatever it claims to read from. Structural checks are applied on top. */
   validate: (reel: Reel) => string[];
-  /** Quality complaints worth one more attempt, but never worth failing a build over. */
-  advise?: (reel: Reel) => string[];
+  /**
+   * Quality complaints worth another attempt, but never worth failing a build over, grouped
+   * most-important first. Only the first non-empty group is sent: three kinds of complaint in one
+   * turn produced a reel that fixed the small ones and ignored the one that mattered.
+   */
+  advise?: (reel: Reel) => string[][];
   cachePath: string | undefined;
   allowGenerated: boolean;
   /** Whether the shot schema offers a `source` field — see {@link buildToolSchema}. */
@@ -171,7 +184,7 @@ async function runDesignLoop(loop: DesignLoop): Promise<DesignResult> {
 
   const attempts: DesignAttempt[] = [];
   const totalAttempts = loop.maxRepairs + 1;
-  let advised = false;
+  let advisoryRounds = 0;
 
   for (let attempt = 1; attempt <= totalAttempts; attempt++) {
     const response = await chatCompletion(
@@ -189,12 +202,14 @@ async function runDesignLoop(loop: DesignLoop): Promise<DesignResult> {
     const result = extractReel(response, loop.validate);
 
     if (result.reel !== undefined) {
-      const advisories = loop.advise?.(result.reel) ?? [];
+      const groups = loop.advise?.(result.reel) ?? [];
+      const advisories = groups.flat();
       attempts.push({ attempt, problems: [], advisories, usage });
 
-      if (advisories.length > 0 && !advised && attempt < totalAttempts && result.toolCall !== undefined) {
-        advised = true;
-        pushRepairTurn(messages, response, result.toolCall, advisories);
+      const next = groups.find((group) => group.length > 0);
+      if (next !== undefined && advisoryRounds < MAX_ADVISORY_ROUNDS && attempt < totalAttempts && result.toolCall !== undefined) {
+        advisoryRounds += 1;
+        pushRepairTurn(messages, response, result.toolCall, next);
         continue;
       }
 

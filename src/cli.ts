@@ -844,7 +844,10 @@ function coverageSummaryLine(reel: Reel, footage: FootageItem[]): string {
 
 function motionSummaryLine(motion: MotionBreakdown): string {
   const share = (sec: number): string => `${formatSec(sec)}s (${Math.round((sec / motion.totalSec) * 100)}%)`;
-  return `${share(motion.changingSec)} of screen actually changes, ${share(motion.footageSec)} plays footage, ${share(motion.heldSec)} is held`;
+  return (
+    `${share(motion.footageSec)} plays footage (${share(motion.changingSec)} of it actually changing), ` +
+    `${share(motion.graphicSec)} is cards, ${share(motion.heldSec)} is footage frozen on its last frame`
+  );
 }
 
 /** No-op for a single-recording build, whose shots are cut against evidence the model saw whole. */
@@ -940,6 +943,7 @@ function buildReport(input: BuildReportInput): unknown {
       totalSec: round3(input.motion.totalSec),
       changingSec: round3(input.motion.changingSec),
       footageSec: round3(input.motion.footageSec),
+      graphicSec: round3(input.motion.graphicSec),
       heldSec: round3(input.motion.heldSec),
       heldRatio: round3(input.motion.heldSec / input.motion.totalSec),
     },

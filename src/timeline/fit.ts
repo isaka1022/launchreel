@@ -313,6 +313,25 @@ export function snapRangeToOnset(reel: Reel, timingBySource: Map<string, SourceT
 }
 
 /** Shots that show what an earlier shot already showed, which reads as a repeat rather than a cut. */
+/**
+ * The narration budget is stated in the prompt and routinely written past — 1275 characters
+ * against a 945 budget on the long-form example. Every character over it becomes speech the
+ * refit has to make room for, which it does by holding shots on their last frame, so an
+ * unenforced budget is what turns half a product video into a freeze frame. Stated as an
+ * advisory rather than a validation failure: a reel that runs long is still buildable.
+ */
+export function narrationBudgetAdvisories(reel: Reel, budgetChars: number): string[] {
+  const written = reel.narration.reduce((sum, line) => sum + line.text.length, 0);
+  if (written <= budgetChars) return [];
+
+  const overBy = written - budgetChars;
+  return [
+    `the narration totals ${written} characters against a budget of ${budgetChars} — ${overBy} over. ` +
+      'Cut whole sentences rather than trimming every line: the reel is stretched to fit whatever is written, ' +
+      'so going over does not make it denser, it makes it longer and holds shots on a frozen frame.',
+  ];
+}
+
 export function repeatedRangeAdvisories(reel: Reel, minOverlapRatio: number = REPEAT_OVERLAP_RATIO): string[] {
   const seen: { shotId: string; source: string; range: readonly [number, number] }[] = [];
   const advisories: string[] = [];
@@ -393,7 +412,13 @@ export interface MotionBreakdown {
   footageSec: number;
   /** On-screen seconds where the recording behind the shot actually redraws — footage minus its own dead air. */
   changingSec: number;
-  /** Everything else: held frames, cards, stills. */
+  /** Seconds of title cards and stills: graphics that were never meant to move. */
+  graphicSec: number;
+  /**
+   * Seconds a footage shot spends frozen on its last frame because the recording ran out. Kept
+   * apart from `graphicSec`: a card standing still is the design working, a terminal standing
+   * still is the design running short, and folding them together hides which one is happening.
+   */
   heldSec: number;
 }
 
@@ -407,11 +432,15 @@ export function motionBreakdown(reel: Reel, activeBySource: Map<string, TimeSpan
   let totalSec = 0;
   let footageSec = 0;
   let changingSec = 0;
+  let graphicSec = 0;
 
   for (const shot of reel.shots) {
     totalSec += shot.durationSec;
     const range = shot.evidenceRange;
-    if (range === undefined) continue;
+    if (range === undefined) {
+      graphicSec += shot.durationSec;
+      continue;
+    }
 
     const speed = shotSpeed(shot);
     const played = Math.min(shot.durationSec, (range[1] - range[0]) / speed);
@@ -423,7 +452,7 @@ export function motionBreakdown(reel: Reel, activeBySource: Map<string, TimeSpan
     changingSec += overlapSec(range[0], range[0] + played * speed, active) / speed;
   }
 
-  return { totalSec, footageSec, changingSec, heldSec: totalSec - footageSec };
+  return { totalSec, footageSec, changingSec, graphicSec, heldSec: totalSec - footageSec - graphicSec };
 }
 
 function overlapSec(fromSec: number, toSec: number, spans: TimeSpan[]): number {

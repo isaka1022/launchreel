@@ -6,6 +6,7 @@ import {
   compressToFit,
   fitReel,
   motionBreakdown,
+  narrationBudgetAdvisories,
   onsetAdvisories,
   onsetAlignments,
   repeatedRangeAdvisories,
@@ -318,7 +319,8 @@ describe('motionBreakdown', () => {
     expect(motion.totalSec).toBe(14);
     expect(motion.footageSec).toBe(10);
     expect(motion.changingSec).toBe(4);
-    expect(motion.heldSec).toBe(4); // カードぶん
+    expect(motion.graphicSec).toBe(4); // カードは止まっていて当然なので保持と混ぜない
+    expect(motion.heldSec).toBe(0);
   });
 
   it('尺より素材が短いぶんは保持として数える', () => {
@@ -340,5 +342,27 @@ describe('motionBreakdown', () => {
 
     expect(motion.footageSec).toBe(4);
     expect(motion.changingSec).toBe(4);
+  });
+});
+
+describe('narrationBudgetAdvisories', () => {
+  const reelWith = (texts: string[]): Reel => ({
+    version: 'launchreel/1',
+    title: 't',
+    fps: 30,
+    shots: [{ id: 's1', kind: 'card', durationSec: 5, label: 'l', card: { title: 'c' } }],
+    narration: texts.map((text, i) => ({ id: `n${i}`, shotId: 's1', text })),
+    hitPoints: [],
+  });
+
+  it('予算内なら何も言わない', () => {
+    expect(narrationBudgetAdvisories(reelWith(['12345', '12345']), 10)).toEqual([]);
+  });
+
+  it('超過分を文字数で示す', () => {
+    const advisories = narrationBudgetAdvisories(reelWith(['1234567890', '12345']), 10);
+    expect(advisories).toHaveLength(1);
+    expect(advisories[0]).toContain('15 characters against a budget of 10');
+    expect(advisories[0]).toContain('5 over');
   });
 });
