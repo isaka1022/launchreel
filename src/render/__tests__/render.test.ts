@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { renderCard } from '../card.js';
+import { fitTitleFontSize, renderCard, wrapBalanced } from '../card.js';
 import { renderShots } from '../index.js';
 import { lastDetectedRect, padAndClampCrop, renderTerminalShot, selectRangeForSpeed } from '../terminal.js';
 import type { Reel, Shot } from '../../timeline/schema.js';
@@ -168,5 +168,29 @@ describe('selectRangeForSpeed', () => {
     expect(selectRangeForSpeed([8, 16], 1)).toEqual([8, 16]);
     expect(selectRangeForSpeed([8, 16], 0.5)).toEqual([16, 32]);
     expect(selectRangeForSpeed([8, 16], 2)).toEqual([4, 8]);
+  });
+});
+
+describe('wrapBalanced', () => {
+  it('最後の行に1語だけ残る折り返しを避ける', () => {
+    const text = "music that won't hit your marks — and narration you can't predict";
+    expect(wrapBalanced(text, 63)).toEqual(["music that won't hit your marks —", "and narration you can't predict"]);
+  });
+
+  it('1行に収まるテキストは分割しない', () => {
+    expect(wrapBalanced('LaunchReel', 40)).toEqual(['LaunchReel']);
+  });
+});
+
+describe('fitTitleFontSize', () => {
+  it('短いタイトルは上限まで大きくして余白を埋める', () => {
+    expect(fitTitleFontSize('LaunchReel', 1080, 1612)).toBe(Math.round(1080 * 0.155));
+  });
+
+  it('長いタイトルは小さく組むが、下限より小さくはしない', () => {
+    const long = 'A title long enough that no sensible size fits it on a single line at all';
+    const size = fitTitleFontSize(long, 1080, 1612);
+    expect(size).toBeGreaterThanOrEqual(Math.round(1080 * 0.075));
+    expect(size).toBeLessThan(fitTitleFontSize('LaunchReel', 1080, 1612));
   });
 });

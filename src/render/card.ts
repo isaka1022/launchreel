@@ -119,14 +119,14 @@ function buildCardSvg(card: CardText, layout: CardLayout): string {
   const maxTextWidth = width - paddingX * 2;
   const blockGap = Math.round(height * 0.045);
 
-  const titleFontSize = Math.round(height * 0.09);
+  const titleFontSize = fitTitleFontSize(card.title, height, maxTextWidth);
   const titleLineHeight = Math.round(titleFontSize * 1.15);
-  const titleLines = wrapText(card.title, estimateMaxChars(card.title, titleFontSize, maxTextWidth));
+  const titleLines = wrapBalanced(card.title, estimateMaxChars(card.title, titleFontSize, maxTextWidth));
 
   const subtitleFontSize = Math.round(height * 0.041);
   const subtitleLineHeight = Math.round(subtitleFontSize * 1.35);
   const subtitleLines =
-    card.subtitle !== undefined ? wrapText(card.subtitle, estimateMaxChars(card.subtitle, subtitleFontSize, maxTextWidth)) : [];
+    card.subtitle !== undefined ? wrapBalanced(card.subtitle, estimateMaxChars(card.subtitle, subtitleFontSize, maxTextWidth)) : [];
 
   const commandFontSize = Math.round(height * 0.032);
   const commandLineHeight = Math.round(commandFontSize * 1.5);
@@ -186,6 +186,25 @@ function buildCardSvg(card: CardText, layout: CardLayout): string {
   return parts.join('\n');
 }
 
+/** Fractions of the frame height a title may occupy. Short titles grow into the measure; long ones stay readable. */
+const TITLE_SIZE_MIN_RATIO = 0.075;
+const TITLE_SIZE_MAX_RATIO = 0.155;
+
+/**
+ * A title set at a fixed size leaves a short one stranded in the left third of the frame with
+ * two-thirds of the card empty — the giveaway that nothing composed it. Grow the type until the
+ * longest line fills the measure instead, so "LaunchReel" and a full sentence both sit as a block
+ * of text rather than as the same size on very different amounts of space.
+ */
+export function fitTitleFontSize(title: string, height: number, maxTextWidth: number): number {
+  const min = Math.round(height * TITLE_SIZE_MIN_RATIO);
+  const max = Math.round(height * TITLE_SIZE_MAX_RATIO);
+  const widest = Math.max(...wrapText(title, estimateMaxChars(title, min, maxTextWidth)).map((line) => line.length));
+  if (widest <= 0) return min;
+  const perChar = hasCjk(title) ? 1.05 : 0.58;
+  return Math.min(max, Math.max(min, Math.floor(maxTextWidth / (widest * perChar))));
+}
+
 function textElement(
   x: number,
   blockTop: number,
@@ -236,6 +255,23 @@ function wrapText(text: string, maxCharsPerLine: number): string[] {
   }
   if (current.length > 0) lines.push(current);
   return lines.length > 0 ? lines : [text];
+}
+
+/**
+ * Wraps to the same number of lines as {@link wrapText} but at the narrowest measure that still
+ * fits them, which stops a line break from stranding one word on a line of its own.
+ */
+export function wrapBalanced(text: string, maxCharsPerLine: number): string[] {
+  const target = wrapText(text, maxCharsPerLine).length;
+  if (target <= 1) return wrapText(text, maxCharsPerLine);
+
+  let best = wrapText(text, maxCharsPerLine);
+  for (let width = maxCharsPerLine - 1; width >= 4; width--) {
+    const candidate = wrapText(text, width);
+    if (candidate.length !== target) break;
+    best = candidate;
+  }
+  return best;
 }
 
 function chunkWord(word: string, maxLen: number): string[] {
