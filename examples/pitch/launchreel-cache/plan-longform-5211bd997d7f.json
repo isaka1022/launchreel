@@ -16,275 +16,285 @@
       },
       {
         "id": "s2",
-        "kind": "card",
-        "durationSec": 5,
-        "label": "Chapter 1: The problem",
-        "card": {
-          "title": "Demo-video tools record your clicks",
-          "subtitle": "None of them understand what happened."
-        }
-      },
-      {
-        "id": "s3",
         "kind": "terminal",
-        "durationSec": 7,
-        "label": "Inspect: raw cast file",
+        "durationSec": 6,
+        "label": "Ingest: read the cast file",
         "source": "inspect",
         "evidenceRange": [
           0,
-          0.78
-        ],
-        "speed": 1,
-        "prompt": "Terminal showing launchreel ingest dumping a JSON evidence array from a cast recording, revealing that terminal sessions are already structured data."
+          1.5
+        ]
+      },
+      {
+        "id": "s3",
+        "kind": "card",
+        "durationSec": 5,
+        "label": "What LaunchReel does",
+        "card": {
+          "title": "Point it at a recording",
+          "subtitle": "It reads the session, works out what was demonstrated, builds the video"
+        }
       },
       {
         "id": "s4",
         "kind": "terminal",
         "durationSec": 7,
-        "label": "Inspect: fitting narration to shots",
-        "source": "inspect",
+        "label": "One command, end to end",
+        "source": "build",
         "evidenceRange": [
-          2.79,
-          3.55
-        ],
-        "speed": 1,
-        "prompt": "Terminal showing the fit step: every shot's duration is extended to match the synthesized narration, total 47.21s to 51.58s."
+          0,
+          1.6
+        ]
       },
       {
         "id": "s5",
-        "kind": "card",
-        "durationSec": 5,
-        "label": "Chapter 2: The hard part",
-        "card": {
-          "title": "Music that doesn't keep time",
-          "subtitle": "Generated music can't be told where to put the accents."
-        }
+        "kind": "terminal",
+        "durationSec": 6,
+        "label": "Report: plan, narrate, score",
+        "source": "timeline",
+        "evidenceRange": [
+          0,
+          2.5
+        ]
       },
       {
         "id": "s6",
-        "kind": "terminal",
-        "durationSec": 7,
-        "label": "Build: scoring candidates",
-        "source": "build",
-        "evidenceRange": [
-          10.77,
-          11.72
-        ],
-        "speed": 1,
-        "prompt": "Terminal showing three music candidates measured by librosa — beats, BPM, shift — and track 1 selected with 5/5 hits."
+        "kind": "card",
+        "durationSec": 5,
+        "label": "The hard part",
+        "card": {
+          "title": "Music that won't be told where to land",
+          "subtitle": "MiniMax Music 3.0 has no editing, no continuation, no tempo control"
+        }
       },
       {
         "id": "s7",
-        "kind": "card",
-        "durationSec": 5,
-        "label": "Chapter 3: What you get",
-        "card": {
-          "title": "Two files, not one",
-          "subtitle": "reel.mp4 — and reel.otio, the timeline itself."
-        }
+        "kind": "terminal",
+        "durationSec": 7,
+        "label": "Score: 3 candidates, pick the one that hits",
+        "source": "build",
+        "evidenceRange": [
+          10.5,
+          12
+        ]
       },
       {
         "id": "s8",
         "kind": "terminal",
-        "durationSec": 7,
-        "label": "Build: the assemble step",
-        "source": "build",
+        "durationSec": 6,
+        "label": "Fit narration to shots",
+        "source": "inspect",
         "evidenceRange": [
-          0,
-          1.11
-        ],
-        "speed": 1,
-        "prompt": "Terminal showing the build command run: plan, narrate, score, render — every stage in one invocation."
+          2.79,
+          4
+        ]
       },
       {
         "id": "s9",
-        "kind": "terminal",
-        "durationSec": 7,
-        "label": "Build: the OTIO timeline",
-        "source": "build",
-        "evidenceRange": [
-          13.53,
-          14.41
-        ],
-        "speed": 1,
-        "prompt": "Terminal showing otiotool --stats reading reel.otio: title, start, end, duration. A real editor can open this."
+        "kind": "card",
+        "durationSec": 4,
+        "label": "Measure, then move the cuts",
+        "card": {
+          "title": "Cut where the beat actually is",
+          "subtitle": "Hit points snap to measured beats, not requested ones"
+        }
       },
       {
         "id": "s10",
         "kind": "terminal",
-        "durationSec": 6,
-        "label": "Build: the mp4",
+        "durationSec": 5,
+        "label": "OTIO stats from the editor",
         "source": "build",
         "evidenceRange": [
-          16.02,
-          16.85
-        ],
-        "speed": 1,
-        "prompt": "Terminal showing ffprobe on the output mp4: h264, 1920x1080. The rendered video."
+          13.5,
+          14.6
+        ]
       },
       {
         "id": "s11",
-        "kind": "card",
+        "kind": "terminal",
         "durationSec": 5,
-        "label": "Chapter 4: The project file",
-        "card": {
-          "title": "An OTIO you can open",
-          "subtitle": "Every shot is its own clip. Narration and music on separate tracks."
-        }
+        "label": "FFprobe: real mp4",
+        "source": "build",
+        "evidenceRange": [
+          16,
+          16.85
+        ]
       },
       {
         "id": "s12",
         "kind": "terminal",
-        "durationSec": 6,
-        "label": "Timeline: the report",
-        "source": "timeline",
+        "durationSec": 5,
+        "label": "73 tests pass",
+        "source": "setup",
         "evidenceRange": [
-          0,
-          0.82
-        ],
-        "speed": 1,
-        "prompt": "Terminal showing reel.report.json: total duration, shots, narrate lines, selected music track — every decision recorded."
+          6.4,
+          8
+        ]
       },
       {
         "id": "s13",
-        "kind": "terminal",
-        "durationSec": 6,
-        "label": "Timeline: marked ranges",
-        "source": "timeline",
-        "evidenceRange": [
-          2.83,
-          3.63
-        ],
-        "speed": 1,
-        "prompt": "Terminal showing marked_range blocks in the OTIO file — cut points pinned to the beats that librosa actually found."
+        "kind": "card",
+        "durationSec": 4,
+        "label": "What you get",
+        "card": {
+          "title": "Two files, not one",
+          "subtitle": "reel.mp4 and reel.otio — the project, in a real editor"
+        }
       },
       {
         "id": "s14",
         "kind": "terminal",
         "durationSec": 6,
-        "label": "Timeline: FCPXML round-trip",
+        "label": "The Reel manifest",
+        "source": "inspect",
+        "evidenceRange": [
+          5.96,
+          6.67
+        ]
+      },
+      {
+        "id": "s15",
+        "kind": "terminal",
+        "durationSec": 5,
+        "label": "OTIO: marked ranges on the timeline",
+        "source": "timeline",
+        "evidenceRange": [
+          2.83,
+          3.7
+        ]
+      },
+      {
+        "id": "s16",
+        "kind": "terminal",
+        "durationSec": 6,
+        "label": "Opens in Final Cut Pro too",
         "source": "timeline",
         "evidenceRange": [
           5.64,
           6.57
-        ],
-        "speed": 1,
-        "prompt": "Terminal showing otioconvert producing FCPXML — the same timeline, a different editor's format."
+        ]
       },
       {
-        "id": "s15",
+        "id": "s17",
         "kind": "card",
-        "durationSec": 5,
+        "durationSec": 4,
         "label": "Try it",
         "card": {
           "title": "npx launchreel build examples/self --offline",
-          "subtitle": "No API key. No network. No Python. MIT."
+          "subtitle": "Free and open source. MIT."
         }
       }
     ],
     "narration": [
       {
         "id": "n1",
-        "shotId": "s2",
-        "text": "You shipped something. You need a video about it, and a day is the last thing you want to spend on one.",
-        "atSec": 5
+        "shotId": "s1",
+        "text": "You shipped something. Now you need a video about it."
       },
       {
         "id": "n2",
-        "shotId": "s3",
-        "text": "Every demo-video tool on the market records your clicks. None of them understand what happened.",
-        "atSec": 12
+        "shotId": "s2",
+        "text": "Developers already produce a perfect record of what their software does — a terminal session."
       },
       {
         "id": "n3",
         "shotId": "s3",
-        "text": "But developers already produce a perfect record of what their software does: a terminal session.",
-        "atSec": 17
+        "text": "LaunchReel reads that session and builds the video around what was actually demonstrated."
       },
       {
         "id": "n4",
         "shotId": "s4",
-        "text": "LaunchReel reads that session, works out what was actually demonstrated, and builds the video around that.",
-        "atSec": 22
+        "text": "One command. It plans the shots, writes the narration, picks the music, and renders the timeline."
       },
       {
         "id": "n5",
         "shotId": "s5",
-        "text": "One part is genuinely hard. Generated music cannot be told to put an accent at fourteen seconds.",
-        "atSec": 29
+        "text": "A report shows every step — eight shots, two attempts, eight narration lines measured against their targets."
       },
       {
         "id": "n6",
         "shotId": "s6",
-        "text": "So LaunchReel generates several candidates, measures every one with librosa, and moves the cuts onto the beats it actually finds.",
-        "atSec": 34
+        "text": "The genuinely hard part is the music. You cannot tell a generator where to put the beat."
       },
       {
         "id": "n7",
-        "shotId": "s6",
-        "text": "The first version asked for a single brief and got a track whose first beat landed at eleven seconds. No amount of snapping saves a cut at four in a track like that.",
-        "atSec": 39
+        "shotId": "s7",
+        "text": "So we ask for several candidates, measure every one, and pick the track whose beats already land near the cuts."
       },
       {
         "id": "n8",
-        "shotId": "s7",
-        "text": "Narration works the same way. Every line is synthesized and measured before the timeline is fixed.",
-        "atSec": 44
+        "shotId": "s8",
+        "text": "Narration is measured the same way. Lines that overrun stretch the shot; lines that can't are sent back for a rewrite."
       },
       {
         "id": "n9",
-        "shotId": "s8",
-        "text": "When a line overruns, the shot stretches. When it cannot, the line goes back with a character budget.",
-        "atSec": 49
+        "shotId": "s9",
+        "text": "Then we snap the hit points to the beats we actually found."
       },
       {
         "id": "n10",
-        "shotId": "s9",
-        "text": "You get two things, not one. An mp4 — and an OTIO file, the timeline itself.",
-        "atSec": 56
+        "shotId": "s10",
+        "text": "The result is a real timeline — thirty-five seconds, marked at every cut."
       },
       {
         "id": "n11",
-        "shotId": "s10",
-        "text": "It opens in a real editor with every shot as its own clip, narration and music on separate tracks, and the cut points marked where the beats are.",
-        "atSec": 63
+        "shotId": "s11",
+        "text": "And a real mp4 — h264, 1920 by 1080."
       },
       {
         "id": "n12",
         "shotId": "s12",
-        "text": "No other tool in this space gives you the project file. You get an mp4 and a shrug.",
-        "atSec": 69
+        "text": "Seventy-three tests gate every change."
       },
       {
         "id": "n13",
+        "shotId": "s13",
+        "text": "What you get is two files. The mp4. And the project."
+      },
+      {
+        "id": "n14",
+        "shotId": "s14",
+        "text": "The Reel itself is just JSON — every shot, every line, fully inspectable."
+      },
+      {
+        "id": "n15",
         "shotId": "s15",
-        "text": "It ships with a recorded session, so the first run needs no API key, no network, no Python. Free and open source. MIT.",
-        "atSec": 84
+        "text": "The OTIO file carries marked ranges where the cuts live on the beat."
+      },
+      {
+        "id": "n16",
+        "shotId": "s16",
+        "text": "It opens in any real editor — Final Cut, Premiere, Resolve."
+      },
+      {
+        "id": "n17",
+        "shotId": "s17",
+        "text": "Try it. One command. No API key. No network. No Python. MIT."
       }
     ],
     "music": {
-      "caption": "launchreel demo — measured electronic with a clear four-on-the-floor pulse, ~130 BPM, short sections that support chapter breaks",
+      "caption": "Picked by scoreTrack — measured beats, not requested ones",
       "structureTags": [
         "intro",
         "build",
-        "drop",
-        "breakdown",
+        "score",
+        "chorus",
         "outro"
       ],
       "targetDurationSec": 90
     },
     "hitPoints": [
-      5,
-      12,
-      22,
-      29,
-      39,
-      44,
-      49,
-      56,
-      63,
-      69,
-      84
+      4.63,
+      12.43,
+      18.87,
+      22.2,
+      26.43,
+      40,
+      52,
+      65,
+      78,
+      89
     ]
   },
   "attempts": [
@@ -293,11 +303,11 @@
       "problems": [],
       "advisories": [],
       "usage": {
-        "promptTokens": 7444,
-        "completionTokens": 2991
+        "promptTokens": 7450,
+        "completionTokens": 3079
       }
     }
   ],
   "advisories": [],
-  "promptHash": "a7b24dde09c2"
+  "promptHash": "27e0326aea6d"
 }

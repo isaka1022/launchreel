@@ -12,8 +12,8 @@ soundtrack, title cards, cuts.
 git clone https://github.com/isaka1022/launchreel && cd launchreel
 npm install && npm run build
 
-npx launchreel build examples/pitch --offline    # 111s product video from a pitch + 5 recordings
-npx launchreel build examples/self  --offline    # 47s reel from a single recording
+npx launchreel build examples/pitch --offline    # 101s product video from a pitch + 5 recordings
+npx launchreel build examples/self  --offline    # 53s reel from a single recording
 ```
 
 No API key, no network, no Python. Both replay committed fixtures and write `reel.mp4`,
@@ -31,17 +31,17 @@ So LaunchReel never asks the model to hit a mark. It generates candidates, measu
 with librosa, and moves the cuts onto the beats it actually finds:
 
 ```
-score: 3 candidates for 0.0-114.6s
-  track 1   105.09s   does not cover   139.7 BPM    9/11 hits
-  track 2   151.31s   covers           129.2 BPM   11/11 hits   <- selected
-  track 3    55.18s   does not cover   107.7 BPM    4/11 hits
+score: 3 candidates for 0.0-104.4s
+  track 1    85.43s   does not cover    87.6 BPM    8/10 hits
+  track 2    92.15s   does not cover   120.2 BPM    9/10 hits
+  track 3   205.15s   covers           123.0 BPM   10/10 hits   <- selected
 ```
 
-Track 1 fit the cuts well and was still rejected: it stops nine seconds before the segment does,
-and cuts that land beautifully from a track that has already ended are worth nothing. Length is
-not a request either — the tracks measured while building this project ran from **32.5s to
-172.9s from the same brief**, so reach is taken from the longest candidate in hand, and a second
-track is only ordered once that one is shown not to reach the end.
+Track 2 fit the cuts well and was still rejected: it stops twelve seconds before the segment
+does, and cuts that land beautifully from a track that has already ended are worth nothing.
+Length is not a request either — those three tracks came from one brief and measured **85.4s,
+92.1s and 205.1s**, so reach is taken from the longest candidate in hand, and a second track is
+only ordered once that one is shown not to reach the end.
 
 When a cut does move, the neighbouring shot absorbs exactly the opposite shift, so **the total
 duration never changes.** Cuts already inside the 120 ms tolerance are left alone — moving a cut
@@ -79,7 +79,7 @@ Rung 2 is a model call, so `--offline` skips it and says so rather than pretendi
 truncates a line silently. `reel.report.json` records how each line was closed:
 
 ```json
-"narrate": { "lines": 13, "speechSec": 83.36, "tiers": { "extended": 9, "fits": 4 } }
+"narrate": { "lines": 17, "speechSec": 90.4, "tiers": { "extended": 11, "fits": 6 } }
 ```
 
 ---
@@ -95,15 +95,15 @@ launchreel build examples/pitch                      # or --pitch <file> --foota
 ```
 
 The honest constraint, which the build prints every run: **a terminal session is mostly still.**
-Across the five recordings shipped here, 56 seconds of material contains about 12 seconds where
-the screen actually changes. That is not a flaw to engineer around — terminal output has to hold
+Across the five recordings shipped here, 55.97s of material contains 12.33s where the screen
+actually changes — 22%. That is not a flaw to engineer around — terminal output has to hold
 still long enough to read. What matters is that every shot *opens* on the moment its screen
 starts drawing, so the viewer always arrives just as something appears:
 
 ```
-onset:   9/9 shots open on the screen starting to draw (worst off by 0.0s)
-sources: inspect 6.67/6.67s, build 13.08/16.85s, timeline 6.57/6.57s
-motion:  22.26s (19%) of screen actually changes, 55.18s (48%) plays footage, 59.39s (52%) is held
+onset:   11/11 shots open on the screen starting to draw (worst off by 0.27s)
+sources: inspect 6.67/6.67s, build 13.64/16.85s, timeline 6.57/6.57s, setup 5.0/21.77s
+motion:  21.59s (21%) of screen actually changes, 54.17s (52%) plays footage, 50.2s (48%) is held
 ```
 
 M3 chooses where a shot opens. How much to play from there is arithmetic, so the range is grown
@@ -174,7 +174,7 @@ launchreel ingest  <file.cast|file.tape>     # → evidence
 launchreel plan    <recording>               # → timeline design (MiniMax M3)
 launchreel narrate <reel.json>               # → speech, then refit around measured durations
 launchreel score   <reel.json>               # → music candidates, measured, cuts snapped
-launchreel emit    <reel.json> --otio        # → OpenTimelineIO
+launchreel emit    <reel.json> --otio <out>   # → OpenTimelineIO
 launchreel build   <recording|project dir>   # → all of the above, plus the mp4
 ```
 
@@ -231,12 +231,25 @@ prints the value.
   Generated B-roll is where these videos start to look like every other AI video.
 - **A terminal session is mostly still.** About a fifth of one is the screen changing. LaunchReel
   reports the split every run rather than hiding it.
-- **Speech 2.8 has been returning 503 during MiniMax Week.** Retries with backoff are built in,
-  and the committed examples were narrated with the macOS voice for that reason.
+- **The narration overruns the character budget it is given.** M3 is told how many characters the
+  target duration affords and writes past it anyway — 1275 against a 945 budget for the 90s
+  example, 631 against 315 for the 30s one. The refit absorbs it, so the reels come out at 101s
+  and 53s. The report says which rung closed each line; nothing stops the model writing long.
+- **Speech 2.8 returned 503 for stretches of MiniMax Week.** Retries with backoff are built in,
+  and `--provider system` narrates with the macOS voice when it is down.
 - **Only tested on macOS.** The `say` fallback is macOS-only; everything else should port.
+
+---
+
+## Generated audio
+
+Everything under `examples/*/launchreel-cache/` is model output: the music from MiniMax Music
+3.0, the narration from MiniMax Speech 2.8. The music files carry MiniMax's own AIGC identifier
+in their metadata. Both are redistributed here under the terms the platforms grant for generated
+content, which leave ownership of the output with whoever generated it.
 
 ---
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).

@@ -936,6 +936,8 @@ function buildReport(input: BuildReportInput): unknown {
       unresolvedCoverage: input.design.advisories.length > 0 ? input.design.advisories : undefined,
     },
     motion: {
+      /** Every other figure here is a share of this, so a reader can recompute what the build printed. */
+      totalSec: round3(input.motion.totalSec),
       changingSec: round3(input.motion.changingSec),
       footageSec: round3(input.motion.footageSec),
       heldSec: round3(input.motion.heldSec),
