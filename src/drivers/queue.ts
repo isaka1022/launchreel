@@ -97,7 +97,12 @@ async function postWithRetry(
         body: JSON.stringify(body),
       });
     } catch (err) {
-      throw new Error(`GMI queue request failed: ${errMessage(err)}`);
+      if (attempt >= maxRetries) throw new Error(`GMI queue request failed: ${errMessage(err)}`);
+      const waitMs = backoffMs(attempt, initialBackoffMs, maxBackoffMs);
+      options.onRetry?.(attempt + 1, waitMs, errMessage(err));
+      await sleep(waitMs);
+      attempt += 1;
+      continue;
     }
 
     if (response.ok) return (await response.json()) as QueueResponse;
@@ -138,12 +143,17 @@ async function pollUntilSettled(
         headers: { authorization: `Bearer ${key}` },
       });
     } catch (err) {
-      throw new Error(`GMI queue poll failed: ${errMessage(err)}`);
+      options.onRetry?.(0, pollIntervalMs, `poll failed, still waiting on ${requestId}: ${errMessage(err)}`);
+      continue;
     }
 
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(`GMI queue poll failed: HTTP ${response.status} ${response.statusText} — ${text.slice(0, 500)}`);
+      if (!RETRYABLE_STATUSES.has(response.status)) {
+        throw new Error(`GMI queue poll failed: HTTP ${response.status} ${response.statusText} — ${text.slice(0, 500)}`);
+      }
+      options.onRetry?.(0, pollIntervalMs, `poll returned HTTP ${response.status}, still waiting on ${requestId}`);
+      continue;
     }
 
     const polled = (await response.json()) as QueueResponse;

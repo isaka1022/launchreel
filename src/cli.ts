@@ -17,6 +17,7 @@ import {
   shotSpans,
   sourceCoverage,
   totalDurationSec,
+  UNNAMED_SOURCE_ID,
   validateReel,
   type Reel,
   type ReelUsage,
@@ -666,7 +667,7 @@ export async function runBuild(argv: string[], options: RunOptions = {}): Promis
       stage(`onset: ${onsetSummaryLine(reel, project.footage)}`);
       stage(`sources: ${coverageSummaryLine(reel, project.footage)}`);
     }
-    const motion = motionBreakdown(reel, activeSpansBySource(project.footage));
+    const motion = motionBreakdown(reel, activeSpansBySource(project));
     stage(`motion: ${motionSummaryLine(motion)}`);
     for (const advisory of design.advisories) stage(`  coverage: ${advisory}`);
 
@@ -816,9 +817,16 @@ function resolveRecordingFile(input: string): string {
   return join(input, found);
 }
 
-function activeSpansBySource(footage: FootageItem[] | undefined): Map<string, TimeSpan[]> {
-  if (footage === undefined) return new Map();
-  return new Map(footage.map((item) => [item.id, activeSpans(item.recording)]));
+/**
+ * Active spans keyed the way shots name their source, for both build modes. A single-recording
+ * build has no footage set, and leaving the map empty made `motionBreakdown` report that 0% of the
+ * screen ever changes — a number the build prints as an honesty check, so a false one is worse
+ * than none.
+ */
+function activeSpansBySource(project: BuildProject): Map<string, TimeSpan[]> {
+  if (project.footage !== undefined) return new Map(project.footage.map((item) => [item.id, activeSpans(item.recording)]));
+  if (project.recordingFile === undefined) return new Map();
+  return new Map([[UNNAMED_SOURCE_ID, activeSpans(readRecording(project.recordingFile))]]);
 }
 
 /** What a shot is allowed to open on: a stretch that both moves and leaves a readable screen. */

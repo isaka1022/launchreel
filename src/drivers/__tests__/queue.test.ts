@@ -23,6 +23,35 @@ describe('submitRequest', () => {
     delete process.env.GMI_API_KEY;
   });
 
+  it('submit時の一過性fetch失敗はリトライする', async () => {
+    let call = 0;
+    globalThis.fetch = vi.fn(async () => {
+      call += 1;
+      if (call === 1) throw new TypeError('fetch failed');
+      return fakeResponse({ ok: true, status: 200, body: { request_id: 'r1', status: 'success', outcome: { ok: true } } });
+    }) as unknown as typeof fetch;
+
+    const result = await submitRequest('model-x', { text: 'hi' }, { initialBackoffMs: 1, maxBackoffMs: 2 });
+
+    expect(call).toBe(2);
+    expect(result.requestId).toBe('r1');
+  });
+
+  it('ポーリング中の一過性失敗で処理中のリクエストを捨てない', async () => {
+    let polls = 0;
+    globalThis.fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') return fakeResponse({ ok: true, status: 200, body: { request_id: 'r1', status: 'queued' } });
+      polls += 1;
+      if (polls === 1) throw new TypeError('fetch failed');
+      return fakeResponse({ ok: true, status: 200, body: { request_id: 'r1', status: 'success', outcome: { ok: true } } });
+    }) as unknown as typeof fetch;
+
+    const result = await submitRequest('model-x', { text: 'hi' }, { pollIntervalMs: 1, pollTimeoutMs: 5_000 });
+
+    expect(polls).toBe(2);
+    expect(result.requestId).toBe('r1');
+  });
+
   it('キューに残り続けたリクエストは投げ直して成功する', async () => {
     const seen: string[] = [];
     const onRetry = vi.fn();
