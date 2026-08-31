@@ -668,7 +668,7 @@ export async function runBuild(argv: string[], options: RunOptions = {}): Promis
       stage(`sources: ${coverageSummaryLine(reel, project.footage)}`);
     }
     const motion = motionBreakdown(reel, activeSpansBySource(project));
-    stage(`motion: ${motionSummaryLine(motion)}`);
+    for (const line of motionSummaryLines(motion)) stage(`motion: ${line}`);
     for (const advisory of design.advisories) stage(`  coverage: ${advisory}`);
 
     const narrationAt = new Map(fit.report.lines.map((l) => [l.lineId, l.atSec]));
@@ -842,12 +842,13 @@ function coverageSummaryLine(reel: Reel, footage: FootageItem[]): string {
     .join(', ');
 }
 
-function motionSummaryLine(motion: MotionBreakdown): string {
-  const share = (sec: number): string => `${formatSec(sec)}s (${Math.round((sec / motion.totalSec) * 100)}%)`;
-  return (
-    `${share(motion.footageSec)} plays footage (${share(motion.changingSec)} of it actually changing), ` +
-    `${share(motion.graphicSec)} is cards, ${share(motion.heldSec)} is footage frozen on its last frame`
-  );
+export function motionSummaryLines(motion: MotionBreakdown): string[] {
+  const percent = (sec: number): number => Math.round((sec / motion.totalSec) * 100);
+  const share = (sec: number): string => `${formatSec(sec)}s (${percent(sec)}%)`;
+  return [
+    `footage ${share(motion.footageSec)}; cards ${share(motion.graphicSec)}; last-frame hold ${share(motion.heldSec)}`,
+    `within footage: screen changes for ${formatSec(motion.changingSec)}s (${percent(motion.changingSec)}% of reel)`,
+  ];
 }
 
 /** No-op for a single-recording build, whose shots are cut against evidence the model saw whole. */

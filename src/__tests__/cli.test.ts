@@ -3,12 +3,41 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { runEmit, runFit, runIngest } from '../cli.js';
+import { motionSummaryLines, runEmit, runFit, runIngest } from '../cli.js';
 import { totalDurationSec, type Reel } from '../timeline/schema.js';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const castFixture = join(repoRoot, 'src', 'ingest', '__tests__', 'fixtures', 'sample.cast');
 const reelFixture = join(repoRoot, 'src', '__tests__', 'fixtures', 'vhs-demo-reel.json');
+
+describe('motionSummaryLines', () => {
+  it('4つの実測値を意味が分かる2行に収め、各行を88桁以下にする', () => {
+    const summary = motionSummaryLines({
+      totalSec: 104.369,
+      footageSec: 54.169,
+      changingSec: 21.593,
+      graphicSec: 0,
+      heldSec: 50.2,
+    });
+
+    expect(summary).toEqual([
+      'footage 54.17s (52%); cards 0.0s (0%); last-frame hold 50.2s (48%)',
+      'within footage: screen changes for 21.59s (21% of reel)',
+    ]);
+    expect(summary.every((line) => !line.includes('\n'))).toBe(true);
+
+    // Widest case a reel can reach: a long enough reel that every share needs three digits.
+    const widest = motionSummaryLines({
+      totalSec: 331.71,
+      footageSec: 110.57,
+      changingSec: 110.57,
+      graphicSec: 110.57,
+      heldSec: 110.57,
+    });
+    const outputLines = widest.map((line) => `  motion: ${line}`);
+    expect(Math.max(...outputLines.map((line) => line.length))).toBeLessThanOrEqual(88);
+  });
+});
 
 describe('runIngest', () => {
   it('sample.castをRecording JSONに変換し、stdoutにJSON、stderrにサマリを出す', () => {
