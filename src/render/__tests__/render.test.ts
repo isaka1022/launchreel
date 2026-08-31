@@ -97,8 +97,13 @@ describe('padAndClampCrop', () => {
     expect(rect).toEqual({ x: 0, y: 0, w: 648, h: 306 });
   });
 
-  it('検出領域が画面の20%未満ならundefinedを返す（誤検出扱い）', () => {
-    const rect = padAndClampCrop({ w: 50, h: 50, x: 0, y: 0 }, source, 40);
+  it('疎だが正当な検出領域を切り出しとして受理する', () => {
+    const rect = padAndClampCrop({ w: 636, h: 190, x: 12, y: 20 }, { width: 1084, height: 588 }, 40);
+    expect(rect).toEqual({ x: 0, y: 0, w: 688, h: 250 });
+  });
+
+  it('縮退した検出領域ならundefinedを返す', () => {
+    const rect = padAndClampCrop({ w: 8, h: 4, x: 0, y: 0 }, source, 40);
     expect(rect).toBeUndefined();
   });
 

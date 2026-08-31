@@ -35,8 +35,8 @@ const CROPDETECT_LIMIT = 38;
 /** Extra margin (px) added around the detected content rect so antialiased glyph edges and the cursor block never get clipped. */
 const CROP_PADDING_PX = 40;
 
-/** Below this fraction of the source frame's area, a "detection" is treated as a cropdetect failure rather than real content. */
-const MIN_CROP_AREA_RATIO = 0.2;
+/** Smaller dimensions are too narrow to represent useful terminal content and indicate a degenerate cropdetect result. */
+const MIN_DETECTED_CROP_DIMENSION_PX = 16;
 
 export interface RenderShotOptions {
   castPath: string;
@@ -120,7 +120,7 @@ interface DetectedRect {
 
 /**
  * Runs `cropdetect` over the whole GIF and returns the padded, clamped content rect — or
- * `undefined` when detection isn't trustworthy (nothing found, or a suspiciously small area),
+ * `undefined` when detection isn't trustworthy (nothing found, or a degenerate rectangle),
  * in which case callers should render uncropped rather than risk cutting off real content.
  */
 async function detectContentCrop(gifPath: string): Promise<CropRect | undefined> {
@@ -155,8 +155,7 @@ export function padAndClampCrop(
   source: { width: number; height: number },
   paddingPx: number,
 ): CropRect | undefined {
-  const sourceArea = source.width * source.height;
-  if (sourceArea <= 0 || (detected.w * detected.h) / sourceArea < MIN_CROP_AREA_RATIO) return undefined;
+  if (detected.w < MIN_DETECTED_CROP_DIMENSION_PX || detected.h < MIN_DETECTED_CROP_DIMENSION_PX) return undefined;
 
   const x0 = Math.max(0, detected.x - paddingPx);
   const y0 = Math.max(0, detected.y - paddingPx);
