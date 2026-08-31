@@ -2,9 +2,10 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fitTitleFontSize, renderCard, wrapBalanced } from '../card.js';
 import { renderShots } from '../index.js';
+import * as terminal from '../terminal.js';
 import { lastDetectedRect, padAndClampCrop, renderTerminalShot, selectRangeForSpeed } from '../terminal.js';
 import type { Reel, Shot } from '../../timeline/schema.js';
 
@@ -25,6 +26,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   rmSync(outDir, { recursive: true, force: true });
 });
 
@@ -154,6 +156,31 @@ describe('renderCard', () => {
 });
 
 describe('renderShots', () => {
+  it(
+    '同じsourceを使う複数shotでも録画全体のcrop検出は1回だけ行う',
+    async () => {
+      const detectRecordingCrop = vi.spyOn(terminal, 'detectRecordingCrop').mockResolvedValue(undefined);
+      const reel: Reel = {
+        version: 'launchreel/1',
+        title: 'shared recording crop',
+        fps: 30,
+        shots: [
+          { id: 'terminal-1', kind: 'terminal', source: 'demo', durationSec: 1, label: 'first', evidenceRange: [0, 1] },
+          { id: 'terminal-2', kind: 'terminal', source: 'demo', durationSec: 1, label: 'second', evidenceRange: [1, 2] },
+        ],
+        narration: [],
+        hitPoints: [],
+      };
+      const sources = new Map([['demo', { path: demoCastPath, durationSec: 10 }]]);
+
+      await renderShots(reel, { sources, outDir });
+
+      expect(detectRecordingCrop).toHaveBeenCalledTimes(1);
+      expect(detectRecordingCrop).toHaveBeenCalledWith({ castPath: demoCastPath });
+    },
+    TEST_TIMEOUT_MS,
+  );
+
   it('generated kindは未対応として読めるエラーになる', async () => {
     const reel: Reel = {
       version: 'launchreel/1',

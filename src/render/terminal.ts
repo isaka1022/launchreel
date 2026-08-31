@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, unlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { renderCast } from '../drivers/agg.js';
 import { runFfmpeg, runFfmpegCapture } from '../drivers/ffmpeg.js';
@@ -11,9 +12,7 @@ import { shotSpeed, type Shot } from '../timeline/schema.js';
  * mp4 normalized to exactly `shot.durationSec`. agg's GIF frame timing is only accurate to 1/100s
  * and pads for `--last-frame-duration`, so ffmpeg — not agg — gets the final say on duration.
  *
- * A recorded terminal is usually taller than the text actually printed into it, so before
- * scaling we crop the GIF down to the region that has content, detected with ffmpeg's
- * `cropdetect` filter over the whole clip.
+ * A recording-wide content crop keeps framing stable across every shot from the same terminal.
  */
 
 const DEFAULT_FPS = 30;
@@ -45,6 +44,7 @@ export interface RenderShotOptions {
   theme?: string;
   fontSize?: number;
   width?: number;
+  cropRect?: CropRect;
 }
 
 export interface RenderedShot {
@@ -75,6 +75,7 @@ export async function renderTerminalShot(shot: Shot, options: RenderShotOptions)
     theme,
     fontSize,
     options.width,
+    options.cropRect,
     options.castPath,
   ]);
   const outPath = join(options.outDir, `${shot.id}-${key}.mp4`);
@@ -84,8 +85,7 @@ export async function renderTerminalShot(shot: Shot, options: RenderShotOptions)
   await renderCast({ castPath: options.castPath, outGifPath: gifPath, fromSec, toSec, speed, theme, fontSize });
 
   try {
-    const cropRect = await detectContentCrop(gifPath);
-    await transcodeNormalized(gifPath, outPath, shot.durationSec, fps, options.width, cropRect);
+    await transcodeNormalized(gifPath, outPath, shot.durationSec, fps, options.width, options.cropRect);
   } finally {
     try {
       unlinkSync(gifPath);
@@ -109,6 +109,31 @@ export interface CropRect {
   y: number;
   w: number;
   h: number;
+}
+
+/**
+ * The content rect for a whole recording, shared by every shot cut from it. Detecting per shot
+ * would give each one its own aspect ratio, and the assembler's fit-to-frame would then change
+ * the glyph size on every cut.
+ */
+export async function detectRecordingCrop(options: {
+  castPath: string;
+  theme?: string;
+  fontSize?: number;
+}): Promise<CropRect | undefined> {
+  const tempDir = mkdtempSync(join(tmpdir(), 'launchreel-recording-crop-'));
+  const gifPath = join(tempDir, 'recording.gif');
+  try {
+    await renderCast({
+      castPath: options.castPath,
+      outGifPath: gifPath,
+      theme: options.theme ?? DEFAULT_THEME,
+      fontSize: options.fontSize ?? DEFAULT_FONT_SIZE,
+    });
+    return await detectContentCrop(gifPath);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
 }
 
 interface DetectedRect {

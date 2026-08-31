@@ -7,7 +7,7 @@ import { parseTape } from '../ingest/tape.js';
 import { cacheKey } from '../order/media.js';
 import type { Reel, Shot } from '../timeline/schema.js';
 import { renderCard } from './card.js';
-import { renderTerminalShot, verifyDuration, type RenderedShot } from './terminal.js';
+import { detectRecordingCrop, renderTerminalShot, verifyDuration, type CropRect, type RenderedShot } from './terminal.js';
 
 /** Renders every shot in a Reel to mp4, dispatching by `kind`. See terminal.ts and card.ts for the per-kind renderers. */
 
@@ -30,6 +30,10 @@ export async function renderShots(reel: Reel, options: RenderOptions): Promise<M
   if (!existsSync(options.outDir)) mkdirSync(options.outDir, { recursive: true });
 
   const sources = options.sources ?? singletonSource(options.castPath);
+  const cropRects = new Map<string, CropRect | undefined>();
+  for (const source of sources.values()) {
+    cropRects.set(source.path, await detectRecordingCrop({ castPath: source.path }));
+  }
 
   const results = new Map<string, RenderedShot>();
   const total = reel.shots.length;
@@ -37,7 +41,7 @@ export async function renderShots(reel: Reel, options: RenderOptions): Promise<M
     const original = reel.shots[i]!;
     const source = original.evidenceRange ? resolveSource(original, sources) : undefined;
     const shot = source !== undefined ? clampEvidenceRangeToRecording(original, source.durationSec) : original;
-    const rendered = await renderShot(shot, options.outDir, fps, source?.path);
+    const rendered = await renderShot(shot, options.outDir, fps, source?.path, source ? cropRects.get(source.path) : undefined);
     results.set(shot.id, rendered);
     options.onProgress?.(shot.id, i + 1, total);
   }
@@ -107,12 +111,18 @@ function errMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-async function renderShot(shot: Shot, outDir: string, fps: number, castPath: string | undefined): Promise<RenderedShot> {
+async function renderShot(
+  shot: Shot,
+  outDir: string,
+  fps: number,
+  castPath: string | undefined,
+  cropRect: CropRect | undefined,
+): Promise<RenderedShot> {
   if (shot.kind === 'terminal' || shot.kind === 'screencast') {
     if (castPath === undefined) {
       throw new Error(`shot "${shot.id}" is kind "${shot.kind}" and needs a source recording, but no castPath was given`);
     }
-    return renderTerminalShot(shot, { castPath, outDir, fps });
+    return renderTerminalShot(shot, { castPath, outDir, fps, cropRect });
   }
   if (shot.kind === 'card') return renderCard(shot, { outDir, fps });
   if (shot.kind === 'still') return renderStillShot(shot, outDir, fps);
