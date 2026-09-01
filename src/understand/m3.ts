@@ -68,6 +68,8 @@ export interface DesignResult {
   attempts: DesignAttempt[];
   /** Advisories the model never resolved. The reel is still buildable; the numbers go in the report. */
   advisories: string[];
+  /** The plan fixture this design was read from or written to. Absent when no cacheDir was given. */
+  cachePath?: string;
 }
 
 export async function designReel(recording: Recording, options: DesignOptions = {}): Promise<DesignResult> {
@@ -158,10 +160,10 @@ async function runDesignLoop(loop: DesignLoop): Promise<DesignResult> {
   if (cachePath !== undefined && existsSync(cachePath)) {
     const cached = readCachedDesign(cachePath);
     const stale = cached.promptHash !== undefined && cached.promptHash !== promptHash;
-    if (!stale) return cached.result;
+    if (!stale) return { ...cached.result, cachePath };
     if (options.offline === true) {
       options.onNotice?.(`the cached plan was designed from an older prompt; --offline replays it unchanged (${cachePath})`);
-      return cached.result;
+      return { ...cached.result, cachePath };
     }
     options.onNotice?.('the prompt changed since the cached plan was designed; designing a new one');
   }
@@ -215,7 +217,7 @@ async function runDesignLoop(loop: DesignLoop): Promise<DesignResult> {
 
       const designResult: DesignResult = { reel: result.reel, attempts, advisories };
       if (cachePath !== undefined) writeCachedDesign(cachePath, designResult, promptHash);
-      return designResult;
+      return { ...designResult, cachePath };
     }
 
     attempts.push({ attempt, problems: result.problems, usage });

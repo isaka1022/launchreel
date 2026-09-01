@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { basename, dirname, extname, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { pathToFileURL } from 'node:url';
@@ -43,6 +44,7 @@ import { assembleReel, type MusicPlacement } from './emit/assemble.js';
 import { formatZodIssues } from './report.js';
 import { designLongFormReel, designReel, type DesignResult } from './understand/m3.js';
 import { rewriteLines } from './understand/rewrite.js';
+import { collectCacheDependencies, pruneCacheDir } from './order/cache.js';
 import { synthesizeLines, type SpeechProvider, type SynthesizedLine } from './order/speech.js';
 import { generateTracks, type GeneratedTrack } from './order/music.js';
 import { CACHE_DIR_NAME } from './order/media.js';
@@ -83,6 +85,7 @@ Usage:
   launchreel build <recording.cast|.tape|dir> [-o <out-dir>] [--duration <sec>] [--lang en|ja] [--provider minimax|system] [--offline] [--skip-music]
   launchreel build <dir with pitch.md + footage/> [...]            long-form: a 2-3 minute product video
   launchreel build --pitch <file> --footage <file> [--footage ...] [...]
+  launchreel prune <recording.cast|.tape|dir> [--dry-run]
   launchreel --help
 `;
 
@@ -94,6 +97,7 @@ const USAGE_NARRATE =
   'usage: launchreel narrate <reel.json> [-o <out.json>] [--provider minimax|system] [--lang en|ja] [--out-dir <dir>]';
 const USAGE_SCORE = 'usage: launchreel score <reel.json> [-o <out.json>] [--candidates <n>] [--out-dir <dir>] [--offline]';
 const USAGE_EMIT = 'usage: launchreel emit <reel.json> [--otio <out.otio>] [--fps <n>]';
+const USAGE_PRUNE = 'usage: launchreel prune <recording.cast|.tape|dir> [--dry-run]';
 const USAGE_BUILD =
   'usage: launchreel build <recording.cast|.tape|dir> [-o <out-dir>] [--duration <sec>] [--lang en|ja] [--provider minimax|system] [--offline] [--skip-music]\n' +
   '       launchreel build --pitch <pitch.md> --footage <a.cast> [--footage <b.cast> ...] [...]';
@@ -131,6 +135,7 @@ export async function main(argv: string[], options: RunOptions = {}): Promise<Co
   if (cmd === 'score') return runScore(rest);
   if (cmd === 'emit') return runEmit(rest);
   if (cmd === 'build') return runBuild(rest, options);
+  if (cmd === 'prune') return runPrune(rest, options);
   return { stdout: '', stderr: `unknown command "${cmd}"\n\n${USAGE}`, exitCode: 1 };
 }
 
@@ -492,6 +497,56 @@ export function runEmit(argv: string[]): CommandResult {
   }
 }
 
+/**
+ * Drops cached assets no longer reachable from the current plan. Redesigning leaves the previous
+ * plan's narration and music behind under keys nothing looks up again, and those files are committed
+ * so that `--offline` works for everyone — left alone they make the clone many times larger than the
+ * fixtures it needs. What to keep is decided by replaying the build rather than by re-deriving cache
+ * keys here, so this cannot drift away from how the assets are actually named.
+ */
+export async function runPrune(argv: string[], options: RunOptions = {}): Promise<CommandResult> {
+  try {
+    const { values, positionals } = parseArgs({
+      args: argv,
+      options: { 'dry-run': { type: 'boolean', default: false } },
+      allowPositionals: true,
+    });
+
+    const input = positionals[0];
+    if (input === undefined) return errorResult(USAGE_PRUNE);
+
+    const replayDir = mkdtempSync(join(tmpdir(), 'launchreel-prune-'));
+    try {
+      const replay = await runBuild([input, '--offline', '-o', replayDir]);
+      if (replay.exitCode !== 0) {
+        return errorResult(`the cache cannot be pruned until an --offline build succeeds:\n${replay.stderr.trim()}`);
+      }
+
+      const report = JSON.parse(readFileSync(join(replayDir, 'reel.report.json'), 'utf8')) as {
+        cache: { files: string[] };
+      };
+      const cacheDir = resolveProject(input, undefined, [], false).cacheDir;
+      const result = pruneCacheDir(cacheDir, report.cache.files, { dryRun: values['dry-run'] });
+
+      const verb = values['dry-run'] === true ? 'would remove' : 'removed';
+      const lines = [
+        `prune: ${cacheDir}`,
+        `  keeps ${plural(report.cache.files.length, 'file')} (${formatMb(result.keptBytes)} MB) the offline build reads`,
+        `  ${verb} ${plural(result.removed.length, 'file')} (${formatMb(result.removedBytes)} MB) left behind by earlier plans`,
+      ];
+      return { stdout: '', stderr: `${lines.join('\n')}\n`, exitCode: 0 };
+    } finally {
+      rmSync(replayDir, { recursive: true, force: true });
+    }
+  } catch (err) {
+    return errorResult(errMessage(err));
+  }
+}
+
+function formatMb(bytes: number): string {
+  return (bytes / 1_000_000).toFixed(1);
+}
+
 export async function runBuild(argv: string[], options: RunOptions = {}): Promise<CommandResult> {
   try {
     const { values, positionals } = parseArgs({
@@ -714,6 +769,11 @@ export async function runBuild(argv: string[], options: RunOptions = {}): Promis
       otioPath,
       reelPath,
       provider,
+      cacheFiles: collectCacheDependencies({
+        planPath: design.cachePath,
+        narrationPaths: synthesized.map((line) => line.path),
+        musicPaths: (scoreResult?.segments ?? []).flatMap((s) => s.candidates.map((c) => c.track.path)),
+      }),
     });
     writeFileSync(join(outDir, 'reel.report.json'), `${JSON.stringify(report, null, 2)}\n`);
 
@@ -924,6 +984,7 @@ interface BuildReportInput {
   otioPath: string;
   reelPath: string;
   provider: SpeechProvider;
+  cacheFiles: string[];
 }
 
 function buildReport(input: BuildReportInput): unknown {
@@ -993,6 +1054,8 @@ function buildReport(input: BuildReportInput): unknown {
           snappedHitPoints: reel.hitPoints.map(round3),
         }
       : undefined,
+    /** What an --offline rebuild reads. `launchreel prune` deletes everything else in the cache. */
+    cache: { files: input.cacheFiles },
     mp4: { path: input.mp4Path, durationSec: input.assembled.durationSec },
     otio: { path: input.otioPath },
     reel: { path: input.reelPath },
