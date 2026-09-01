@@ -1,0 +1,189 @@
+{
+  "reel": {
+    "version": "launchreel/1",
+    "title": "From terminal capture to polished Reel — in one command",
+    "fps": 30,
+    "shots": [
+      {
+        "id": "s1",
+        "kind": "terminal",
+        "durationSec": 2.4,
+        "label": "Build command typed",
+        "evidenceRange": [
+          0.01,
+          2.44
+        ]
+      },
+      {
+        "id": "s2",
+        "kind": "terminal",
+        "durationSec": 3,
+        "label": "Plan & narrate output",
+        "evidenceRange": [
+          2.44,
+          5.44
+        ]
+      },
+      {
+        "id": "s3",
+        "kind": "card",
+        "durationSec": 3,
+        "label": "9 shots · 6 narration lines",
+        "card": {
+          "title": "9 shots designed",
+          "subtitle": "6 narration lines synthesized"
+        }
+      },
+      {
+        "id": "s4",
+        "kind": "terminal",
+        "durationSec": 3.7,
+        "label": "Render stats line",
+        "evidenceRange": [
+          5.45,
+          9.2
+        ]
+      },
+      {
+        "id": "s5",
+        "kind": "terminal",
+        "durationSec": 1.4,
+        "label": "Assemble output",
+        "evidenceRange": [
+          9.21,
+          10.62
+        ]
+      },
+      {
+        "id": "s6",
+        "kind": "terminal",
+        "durationSec": 3.85,
+        "label": "Score candidates",
+        "evidenceRange": [
+          10.62,
+          14.47
+        ]
+      },
+      {
+        "id": "s7",
+        "kind": "card",
+        "durationSec": 3,
+        "label": "Music: 5/5 hits locked",
+        "card": {
+          "title": "Music snapped",
+          "subtitle": "5/5 hit points · track 2 selected"
+        }
+      },
+      {
+        "id": "s8",
+        "kind": "terminal",
+        "durationSec": 2.2,
+        "label": "otio stats header",
+        "evidenceRange": [
+          15.66,
+          17.86
+        ]
+      },
+      {
+        "id": "s9",
+        "kind": "terminal",
+        "durationSec": 3.5,
+        "label": "Codec probe",
+        "evidenceRange": [
+          19.07,
+          22.54
+        ]
+      },
+      {
+        "id": "s10",
+        "kind": "card",
+        "durationSec": 3.95,
+        "label": "Final delivery specs",
+        "card": {
+          "title": "1920×1080 · H.264 + AAC",
+          "subtitle": "Reel assembled in seconds",
+          "command": "ffprobe reel.mp4"
+        }
+      }
+    ],
+    "narration": [
+      {
+        "id": "n1",
+        "shotId": "s1",
+        "text": "One command turns a terminal capture into a polished launch Reel.",
+        "atSec": 0.2
+      },
+      {
+        "id": "n2",
+        "shotId": "s2",
+        "text": "It plans shots, drafts narration, and scores the music.",
+        "atSec": 2.8
+      },
+      {
+        "id": "n3",
+        "shotId": "s4",
+        "text": "Footage stays footage; frozen frames become cards.",
+        "atSec": 9.6
+      },
+      {
+        "id": "n4",
+        "shotId": "s6",
+        "text": "Hits snap to the beat before the timeline is written.",
+        "atSec": 15.2
+      },
+      {
+        "id": "n5",
+        "shotId": "s8",
+        "text": "The output: a clean OTIO timeline you can edit.",
+        "atSec": 20.8
+      },
+      {
+        "id": "n6",
+        "shotId": "s10",
+        "text": "Shipped as 1080p H.264 with synced audio.",
+        "atSec": 26.5
+      }
+    ],
+    "music": {
+      "caption": "Upbeat synth-pop with a steady kick on the 1 — cue small accents on shot transitions.",
+      "structureTags": [
+        "intro-cue@0",
+        "build-up@10",
+        "drop@18",
+        "outro-cue@26"
+      ],
+      "targetDurationSec": 30
+    },
+    "hitPoints": [
+      2.4,
+      5.4,
+      9.2,
+      14.4,
+      22.5
+    ]
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "problems": [],
+      "advisories": [
+        "the narration totals 329 characters against a budget of 315 — 14 over. Cut whole sentences rather than trimming every line: the reel is stretched to fit whatever is written, so going over does not make it denser, it makes it longer and holds shots on a frozen frame."
+      ],
+      "usage": {
+        "promptTokens": 1968,
+        "completionTokens": 1496
+      }
+    },
+    {
+      "attempt": 2,
+      "problems": [],
+      "advisories": [],
+      "usage": {
+        "promptTokens": 3536,
+        "completionTokens": 1482
+      }
+    }
+  ],
+  "advisories": [],
+  "promptHash": "586da7f81e9d"
+}

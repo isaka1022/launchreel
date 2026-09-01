@@ -1,0 +1,375 @@
+{
+  "reel": {
+    "version": "launchreel/1",
+    "title": "From terminal capture to polished Reel — in one command",
+    "fps": 30,
+    "shots": [
+      {
+        "id": "s1",
+        "kind": "card",
+        "durationSec": 6,
+        "label": "Title",
+        "prompt": "Title card introducing LaunchReel, the tagline, and the four pipeline stages.",
+        "card": {
+          "title": "From terminal capture to polished Reel — in one command",
+          "subtitle": "launchreel // build • narrate • score • assemble"
+        }
+      },
+      {
+        "id": "s2",
+        "kind": "terminal",
+        "durationSec": 6,
+        "label": "73 tests pass",
+        "source": "setup",
+        "evidenceRange": [
+          6.52,
+          7.92
+        ],
+        "speed": 0.6,
+        "prompt": "Terminal showing the npm test summary: 11 test files, 73 tests passed — the project ships tested and is ready to demo itself."
+      },
+      {
+        "id": "s3",
+        "kind": "card",
+        "durationSec": 6,
+        "label": "One command",
+        "prompt": "Section card introducing the one-command workflow and the zero-config first run.",
+        "card": {
+          "title": "One command — that's the setup",
+          "subtitle": "no API key, no network, no Python"
+        }
+      },
+      {
+        "id": "s4",
+        "kind": "terminal",
+        "durationSec": 6,
+        "label": "Build pipeline",
+        "source": "build",
+        "evidenceRange": [
+          0,
+          2.57
+        ],
+        "speed": 0.6,
+        "prompt": "Terminal running 'launchreel build examples/self --offline' showing the plan (9 shots), narrate (6 lines synthesized, 36.26s), score (3 candidates, track 2 selected, 5/5 hits), and render summary lines filling the screen."
+      },
+      {
+        "id": "s5",
+        "kind": "terminal",
+        "durationSec": 6,
+        "label": "Ingest the cast",
+        "source": "inspect",
+        "evidenceRange": [
+          0,
+          2.78
+        ],
+        "speed": 0.6,
+        "prompt": "Terminal running 'launchreel ingest examples/self/demo.cast | head -14' showing the JSON output drawing: source 'cast', duration 16.85s, cols 88, rows 20, and the evidence array with the first command at t=0.011."
+      },
+      {
+        "id": "s6",
+        "kind": "terminal",
+        "durationSec": 6,
+        "label": "The plan in JSON",
+        "source": "inspect",
+        "evidenceRange": [
+          5.96,
+          6.67
+        ],
+        "speed": 0.6,
+        "prompt": "Terminal showing the head of reel.json drawing in — the launchreel/1 schema, the title, fps 30, and the shots array containing a card shot (s1, Title card) and a terminal shot (s2). The model's designed plan, held on screen for reading."
+      },
+      {
+        "id": "s7",
+        "kind": "card",
+        "durationSec": 6,
+        "label": "The hard part",
+        "prompt": "Section card naming the music problem: generated tracks ignore tempo and cannot place accents on demand.",
+        "card": {
+          "title": "The hard part: music",
+          "subtitle": "models can't be told where a beat goes"
+        }
+      },
+      {
+        "id": "s8",
+        "kind": "terminal",
+        "durationSec": 6,
+        "label": "Report — candidates and beats",
+        "source": "timeline",
+        "evidenceRange": [
+          0,
+          2.82
+        ],
+        "speed": 0.6,
+        "prompt": "Terminal showing reel.report.json head drawing: totalDurationSec, shots count, plan attempts, narrate provider and speech seconds, and music candidates with beats and hits — the measurement that drives beat snapping."
+      },
+      {
+        "id": "s9",
+        "kind": "terminal",
+        "durationSec": 6,
+        "label": "Score and snap",
+        "source": "build",
+        "evidenceRange": [
+          9.65,
+          15.65
+        ],
+        "prompt": "Terminal showing the assemble and emit lines, then the score command, then three candidates compared (track 2 selected: 5/5 hits, shift 0.09s, 107.7 BPM) and the snapped hit points array — cuts land on real beats."
+      },
+      {
+        "id": "s10",
+        "kind": "card",
+        "durationSec": 6,
+        "label": "Narration",
+        "prompt": "Section card explaining the narration pipeline mirrors the music pipeline.",
+        "card": {
+          "title": "Narration: measured, not guessed",
+          "subtitle": "synthesize → measure → place"
+        }
+      },
+      {
+        "id": "s11",
+        "kind": "terminal",
+        "durationSec": 6,
+        "label": "Fit narration to shots",
+        "source": "inspect",
+        "evidenceRange": [
+          2.79,
+          5.95
+        ],
+        "speed": 0.6,
+        "prompt": "Terminal running 'launchreel fit' showing the fit command and its output drawing: each shot's original vs extended duration, total before/after (47.21s → 51.58s), and 'needs rewrite: none'. Narration is measured, then placed."
+      },
+      {
+        "id": "s12",
+        "kind": "card",
+        "durationSec": 6,
+        "label": "Two artifacts",
+        "prompt": "Section card announcing the two deliverables: the rendered mp4 and the editable project file.",
+        "card": {
+          "title": "Two artifacts, not one",
+          "subtitle": "reel.mp4 + reel.otio"
+        }
+      },
+      {
+        "id": "s13",
+        "kind": "terminal",
+        "durationSec": 6,
+        "label": "OTIO project file",
+        "source": "timeline",
+        "evidenceRange": [
+          2.83,
+          5.63
+        ],
+        "speed": 0.6,
+        "prompt": "Terminal grepping marked_range from reel.otio showing OTIO TimeRange entries with start_time rate 30 — the cut points marked where the beats are."
+      },
+      {
+        "id": "s14",
+        "kind": "terminal",
+        "durationSec": 6,
+        "label": "FCPXML export",
+        "source": "timeline",
+        "evidenceRange": [
+          5.64,
+          6.57
+        ],
+        "speed": 0.6,
+        "prompt": "Terminal converting reel.otio to FCPXML and showing the fcpxml header with format r1 1080p30 — the timeline opens in a real non-linear editor."
+      },
+      {
+        "id": "s15",
+        "kind": "card",
+        "durationSec": 7,
+        "label": "Try it",
+        "prompt": "Closing card with the try-it tagline, the exact command, and the license (MIT).",
+        "card": {
+          "title": "Try it — fully offline",
+          "subtitle": "Ships with a recorded session and everything it generated",
+          "command": "npx launchreel build examples/self --offline"
+        }
+      }
+    ],
+    "narration": [
+      {
+        "id": "n1",
+        "shotId": "s2",
+        "text": "Making a demo video used to cost me a whole day.",
+        "atSec": 7
+      },
+      {
+        "id": "n2",
+        "shotId": "s4",
+        "text": "Then I found one that reads the terminal session I already have.",
+        "atSec": 19
+      },
+      {
+        "id": "n3",
+        "shotId": "s4",
+        "text": "Point it at a recording — asciinema, vhs, whatever.",
+        "atSec": 22
+      },
+      {
+        "id": "n4",
+        "shotId": "s5",
+        "text": "It reads the session and works out what got demonstrated.",
+        "atSec": 25
+      },
+      {
+        "id": "n5",
+        "shotId": "s6",
+        "text": "Then it designs the whole timeline around that.",
+        "atSec": 31
+      },
+      {
+        "id": "n6",
+        "shotId": "s7",
+        "text": "The hard part is the music — models can't be told where a beat goes.",
+        "atSec": 37
+      },
+      {
+        "id": "n7",
+        "shotId": "s8",
+        "text": "So it generates several candidates and measures every one.",
+        "atSec": 43
+      },
+      {
+        "id": "n8",
+        "shotId": "s9",
+        "text": "The cuts land on the beats it actually finds.",
+        "atSec": 49
+      },
+      {
+        "id": "n9",
+        "shotId": "s10",
+        "text": "Narration works the same way — synthesize, measure, place.",
+        "atSec": 55
+      },
+      {
+        "id": "n10",
+        "shotId": "s11",
+        "text": "When narration overruns, the shot stretches to fit it.",
+        "atSec": 61
+      },
+      {
+        "id": "n11",
+        "shotId": "s11",
+        "text": "When it can't stretch, the line goes back for a rewrite.",
+        "atSec": 63.5
+      },
+      {
+        "id": "n12",
+        "shotId": "s12",
+        "text": "You get reel.mp4 — and the timeline itself, reel.otio.",
+        "atSec": 67
+      },
+      {
+        "id": "n13",
+        "shotId": "s13",
+        "text": "It opens in a real editor. Every clip its own. Narration and music on separate tracks.",
+        "atSec": 73
+      },
+      {
+        "id": "n14",
+        "shotId": "s14",
+        "text": "Cut points sit where the beats are. No guessing.",
+        "atSec": 79
+      },
+      {
+        "id": "n15",
+        "shotId": "s15",
+        "text": "Ships with a recording and everything it generated.",
+        "atSec": 85
+      },
+      {
+        "id": "n16",
+        "shotId": "s15",
+        "text": "First run: no API key, no network, no Python.",
+        "atSec": 87
+      },
+      {
+        "id": "n17",
+        "shotId": "s15",
+        "text": "Free and open source. MIT.",
+        "atSec": 89
+      }
+    ],
+    "music": {
+      "caption": "LaunchReel — terminal to reel",
+      "structureTags": [
+        "intro",
+        "build",
+        "main",
+        "outro"
+      ],
+      "targetDurationSec": 91
+    },
+    "hitPoints": [
+      6,
+      12,
+      18,
+      24,
+      30,
+      36,
+      42,
+      48,
+      54,
+      60,
+      66,
+      72,
+      78,
+      84
+    ]
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "problems": [
+        "shot \"s6\" reads up to 11.96s but the recording of source \"inspect\" is only 6.67s long",
+        "shot \"s11\" reads up to 8.79s but the recording of source \"inspect\" is only 6.67s long",
+        "shot \"s13\" reads up to 8.83s but the recording of source \"timeline\" is only 6.57s long",
+        "shot \"s14\" reads up to 11.64s but the recording of source \"timeline\" is only 6.57s long"
+      ],
+      "usage": {
+        "promptTokens": 7490,
+        "completionTokens": 19530
+      }
+    },
+    {
+      "attempt": 2,
+      "problems": [],
+      "advisories": [
+        "the narration totals 968 characters against a budget of 945 — 23 over. Cut whole sentences rather than trimming every line: the reel is stretched to fit whatever is written, so going over does not make it denser, it makes it longer and holds shots on a frozen frame.",
+        "shot \"s11\" shows [2.79, 6.67] of \"inspect\", which shot \"s5\" already showed — move it to a stretch of the recording no other shot uses",
+        "shot \"s13\" shows [2.83, 6.57] of \"timeline\", which shot \"s8\" already showed — move it to a stretch of the recording no other shot uses",
+        "shot \"s14\" shows [5.64, 6.57] of \"timeline\", which shot \"s13\" already showed — move it to a stretch of the recording no other shot uses"
+      ],
+      "usage": {
+        "promptTokens": 27158,
+        "completionTokens": 6076
+      }
+    },
+    {
+      "attempt": 3,
+      "problems": [],
+      "advisories": [
+        "shot \"s11\" shows [2.79, 6.67] of \"inspect\", which shot \"s5\" already showed — move it to a stretch of the recording no other shot uses",
+        "shot \"s13\" shows [2.83, 6.57] of \"timeline\", which shot \"s8\" already showed — move it to a stretch of the recording no other shot uses",
+        "shot \"s14\" shows [5.64, 6.57] of \"timeline\", which shot \"s13\" already showed — move it to a stretch of the recording no other shot uses"
+      ],
+      "usage": {
+        "promptTokens": 33306,
+        "completionTokens": 4555
+      }
+    },
+    {
+      "attempt": 4,
+      "problems": [],
+      "advisories": [],
+      "usage": {
+        "promptTokens": 38004,
+        "completionTokens": 15625
+      }
+    }
+  ],
+  "advisories": [],
+  "promptHash": "bf01b7eb6f4b"
+}
