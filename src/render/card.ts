@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { runFfmpeg } from '../drivers/ffmpeg.js';
 import { probeDurationSec } from '../drivers/probe.js';
 import { renderSvg } from '../drivers/rsvg.js';
+import { charWidthRatio, estimateMaxChars, textElement, wrapBalanced, wrapText } from './svg-text.js';
 import { cacheKey } from '../order/media.js';
 import type { Shot } from '../timeline/schema.js';
 import { verifyDuration, type RenderedShot } from './terminal.js';
@@ -149,13 +150,32 @@ function buildCardSvg(card: CardText, layout: CardLayout): string {
     `<rect width="${width}" height="${height}" fill="${background}"/>`,
   ];
 
-  parts.push(textElement(paddingX, cursorY, titleFontSize, titleLineHeight, TITLE_FONT, theme.title, titleLines, true));
+  parts.push(
+    textElement({
+      x: paddingX,
+      blockTop: cursorY,
+      fontSize: titleFontSize,
+      lineHeight: titleLineHeight,
+      fontFamily: TITLE_FONT,
+      fill: theme.title,
+      lines: titleLines,
+      bold: true,
+    }),
+  );
   cursorY += titleBlockHeight;
 
   if (subtitleLines.length > 0) {
     cursorY += blockGap;
     parts.push(
-      textElement(paddingX, cursorY, subtitleFontSize, subtitleLineHeight, TITLE_FONT, theme.subtitle, subtitleLines, false),
+      textElement({
+        x: paddingX,
+        blockTop: cursorY,
+        fontSize: subtitleFontSize,
+        lineHeight: subtitleLineHeight,
+        fontFamily: TITLE_FONT,
+        fill: theme.subtitle,
+        lines: subtitleLines,
+      }),
     );
     cursorY += subtitleLines.length * subtitleLineHeight;
   }
@@ -169,16 +189,15 @@ function buildCardSvg(card: CardText, layout: CardLayout): string {
     );
     const textX = paddingX + commandBoxPaddingX;
     parts.push(
-      textElement(
-        textX,
-        cursorY + commandBoxPaddingY,
-        commandFontSize,
-        commandLineHeight,
-        COMMAND_FONT,
-        theme.commandText,
-        commandLines,
-        false,
-      ),
+      textElement({
+        x: textX,
+        blockTop: cursorY + commandBoxPaddingY,
+        fontSize: commandFontSize,
+        lineHeight: commandLineHeight,
+        fontFamily: COMMAND_FONT,
+        fill: theme.commandText,
+        lines: commandLines,
+      }),
     );
   }
 
@@ -201,82 +220,7 @@ export function fitTitleFontSize(title: string, height: number, maxTextWidth: nu
   const max = Math.round(height * TITLE_SIZE_MAX_RATIO);
   const widest = Math.max(...wrapText(title, estimateMaxChars(title, min, maxTextWidth)).map((line) => line.length));
   if (widest <= 0) return min;
-  const perChar = hasCjk(title) ? 1.05 : 0.58;
+  const perChar = charWidthRatio(title);
   return Math.min(max, Math.max(min, Math.floor(maxTextWidth / (widest * perChar))));
 }
 
-function textElement(
-  x: number,
-  blockTop: number,
-  fontSize: number,
-  lineHeight: number,
-  fontFamily: string,
-  fill: string,
-  lines: string[],
-  bold: boolean,
-): string {
-  const firstBaseline = blockTop + Math.round(fontSize * 0.82);
-  const weightAttr = bold ? ' font-weight="bold"' : '';
-  const tspans = lines
-    .map((line, i) => `<tspan x="${x}" dy="${i === 0 ? 0 : lineHeight}">${escapeXml(line)}</tspan>`)
-    .join('');
-  return `<text x="${x}" y="${firstBaseline}" font-family="${fontFamily}"${weightAttr} font-size="${fontSize}" fill="${fill}">${tspans}</text>`;
-}
-
-function escapeXml(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
-}
-
-function hasCjk(text: string): boolean {
-  return /[　-ヿ㐀-䶿一-鿿豈-﫿＀-￯]/.test(text);
-}
-
-function estimateMaxChars(text: string, fontSize: number, maxWidthPx: number): number {
-  const avgCharWidth = hasCjk(text) ? fontSize * 1.05 : fontSize * 0.58;
-  return Math.max(4, Math.floor(maxWidthPx / avgCharWidth));
-}
-
-function wrapText(text: string, maxCharsPerLine: number): string[] {
-  const words = text.split(/\s+/).filter((w) => w.length > 0);
-  if (words.length === 0) return [text];
-
-  const lines: string[] = [];
-  let current = '';
-  for (const word of words) {
-    for (const chunk of chunkWord(word, maxCharsPerLine)) {
-      const candidate = current.length === 0 ? chunk : `${current} ${chunk}`;
-      if (candidate.length > maxCharsPerLine && current.length > 0) {
-        lines.push(current);
-        current = chunk;
-      } else {
-        current = candidate;
-      }
-    }
-  }
-  if (current.length > 0) lines.push(current);
-  return lines.length > 0 ? lines : [text];
-}
-
-/**
- * Wraps to the same number of lines as {@link wrapText} but at the narrowest measure that still
- * fits them, which stops a line break from stranding one word on a line of its own.
- */
-export function wrapBalanced(text: string, maxCharsPerLine: number): string[] {
-  const target = wrapText(text, maxCharsPerLine).length;
-  if (target <= 1) return wrapText(text, maxCharsPerLine);
-
-  let best = wrapText(text, maxCharsPerLine);
-  for (let width = maxCharsPerLine - 1; width >= 4; width--) {
-    const candidate = wrapText(text, width);
-    if (candidate.length !== target) break;
-    best = candidate;
-  }
-  return best;
-}
-
-function chunkWord(word: string, maxLen: number): string[] {
-  if (word.length <= maxLen) return [word];
-  const chunks: string[] = [];
-  for (let i = 0; i < word.length; i += maxLen) chunks.push(word.slice(i, i + maxLen));
-  return chunks;
-}

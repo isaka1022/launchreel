@@ -17,7 +17,7 @@ npx launchreel build examples/self  --offline    # 36.97s reel from a single rec
 ```
 
 No API key, no network, no Python. Both replay committed fixtures and write `reel.mp4`,
-`reel.otio` and `reel.report.json` — the same files the numbers below came from.
+`reel.srt`, `reel.otio` and `reel.report.json` — the same files the numbers below came from.
 
 ---
 
@@ -81,6 +81,10 @@ truncates a line silently. `reel.report.json` records how each line was closed:
 "narrate": { "lines": 17, "speechSec": 65.434, "tiers": { "fits": 8, "extended": 9 } }
 ```
 
+Captions come out of the same measurement. Each line is burned into the picture, and written to
+`reel.srt`, over the span the mixed audio actually occupies — so a caption cannot drift away from
+the voice it belongs to the way one transcribed from a script would.
+
 ---
 
 ## Long-form: a pitch and several recordings
@@ -136,7 +140,7 @@ Reel IR   shots · narration · hit points · music brief
    └── agg + ffmpeg  →  each shot rendered to the exact second
    │
    ▼
-reel.mp4  +  reel.otio  +  reel.report.json
+reel.mp4  +  reel.srt  +  reel.otio  +  reel.report.json
 ```
 
 M3 is never asked to emit OpenTimelineIO. It emits a small intermediate representation, and
@@ -176,6 +180,7 @@ launchreel narrate <reel.json>               # → speech, then refit around mea
 launchreel score   <reel.json>               # → music candidates, measured, cuts snapped
 launchreel emit    <reel.json> --otio <out>   # → OpenTimelineIO
 launchreel build   <recording|project dir>   # → all of the above, plus the mp4
+launchreel prune   <recording|project dir>   # → drop cached assets the current plan no longer reads
 ```
 
 Each step writes a file you can inspect and edit by hand before running the next one.
@@ -188,6 +193,7 @@ Each step writes a file you can inspect and edit by hand before running the next
 | `--duration <sec>` | Target length. 30 for a single recording, 90 for a long-form project |
 | `--pitch` / `--footage` | Long-form inputs, when they aren't laid out as a project directory |
 | `--skip-music` | Build without a soundtrack |
+| `--dry-run` | `prune` only: list what would be deleted, delete nothing |
 
 `--offline` fails loudly on a cache miss rather than quietly substituting something else. A
 replay that silently produces a different video isn't a replay.

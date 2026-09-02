@@ -729,16 +729,20 @@ export async function runBuild(argv: string[], options: RunOptions = {}): Promis
     const narrationAt = new Map(fit.report.lines.map((l) => [l.lineId, l.atSec]));
     const atempoByLine = atempoByLineId(fit.report.lines);
     const mp4Path = join(outDir, 'reel.mp4');
+    const subtitlePath = join(outDir, 'reel.srt');
     const assembled = await assembleReel(reel, {
       shots: rendered,
       narration: synthesized,
       narrationAt,
+      narrationText: new Map(reel.narration.map((l) => [l.id, l.text])),
+      subtitlePath,
       atempoByLine,
       music: scoreResult ? musicPlacements(scoreResult) : undefined,
       outPath: mp4Path,
       fps: reel.fps,
     });
     stage(`assemble: ${formatSec(assembled.durationSec)}s -> ${basename(mp4Path)}`);
+    if (existsSync(subtitlePath)) stage(`subtitles: ${plural(reel.narration.length, 'cue')} -> ${basename(subtitlePath)}`);
 
     const shotMedia = new Map(reel.shots.map((s) => [s.id, requireRendered(rendered, s.id).path]));
     const narrationMedia = new Map(synthesized.map((s) => [s.lineId, s.path]));

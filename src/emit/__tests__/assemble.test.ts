@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   assembleReel,
+  captionOverlayChain,
   clampXfade,
   crossfadedMusicFilterChain,
   duckAndMix,
@@ -369,4 +370,23 @@ describe('assembleReel (real ffmpeg)', () => {
     },
     TEST_TIMEOUT_MS,
   );
+});
+
+describe('captionOverlayChain', () => {
+  it('各キャプションを話している間だけ出し、前段の出力を次段へ渡す', () => {
+    const chain = captionOverlayChain('video', [
+      { inputIndex: 20, startSec: 1.5, endSec: 4.25 },
+      { inputIndex: 21, startSec: 6, endSec: 9.5 },
+    ]);
+
+    expect(chain.filter).toBe(
+      "[video][20:v]overlay=0:0:enable='between(t,1.500,4.250)'[videosub0];" +
+        "[videosub0][21:v]overlay=0:0:enable='between(t,6.000,9.500)'[videosub1]",
+    );
+    expect(chain.label).toBe('videosub1');
+  });
+
+  it('キャプションが無ければ映像ラベルをそのまま通す', () => {
+    expect(captionOverlayChain('video', [])).toEqual({ filter: '', label: 'video' });
+  });
 });

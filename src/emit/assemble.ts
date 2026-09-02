@@ -1,5 +1,10 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { listFfmpegFilters, runFfmpeg, runFfmpegCapture } from '../drivers/ffmpeg.js';
+import { toSrt, type SubtitleCue } from './subtitles.js';
 import { probeDurationSec } from '../drivers/probe.js';
+import { renderCaption } from '../render/caption.js';
 import { DEFAULT_BACKGROUND } from '../render/card.js';
 import { shotSpans, type Reel, type ShotSpan } from '../timeline/schema.js';
 import type { SynthesizedLine } from '../order/speech.js';
@@ -21,6 +26,15 @@ const DEFAULT_MUSIC_FADE_SEC = 1.5;
 const DEFAULT_MUSIC_CROSSFADE_SEC = 1.5;
 const MIN_XFADE_SEC = 0.02;
 const LOUDNESS_TARGET_LUFS = -16;
+/**
+ * Where the music bed sits before ducking. Music 3.0 masters its tracks about as loud as the
+ * synthesized narration, so mixing the two as they arrive buries the voice — and the ducking
+ * compressor cannot rescue it, because a bed that loud never leaves the voice room even at full
+ * gain reduction. Levelling the bed here is what makes ducking meaningful: it lands the music
+ * around the compressor's threshold, loud enough to carry the passages with no narration over
+ * them, quiet enough that a line of speech pushes it down and out of the way.
+ */
+const MUSIC_BED_LUFS = -20;
 const LOUDNESS_TARGET_TP = -1.5;
 const LOUDNESS_TARGET_LRA = 11;
 
@@ -43,6 +57,10 @@ export interface AssembleOptions {
   shots: Map<string, { path: string; durationSec: number }>;
   narration?: SynthesizedLine[];
   narrationAt?: Map<string, number>;
+  /** Narration text by line id. Given both, subtitles are written and burned in. */
+  narrationText?: Map<string, string>;
+  /** Where to write the SRT. The same cues are burned into the picture. */
+  subtitlePath?: string;
   /** Per-line atempo (>1 speeds up); comes from fit's 'compressed' tier. Applied before adelay. */
   atempoByLine?: Map<string, number>;
   /** Tracks laid end to end, in order. `startSec` is on the reel's nominal (pre-crossfade) timeline. */
@@ -132,6 +150,32 @@ export function videoFilterChain(
   return { filter: parts.join(';'), label: cur };
 }
 
+export interface CaptionOverlay {
+  /** Full-frame transparent PNG holding one line of text, already positioned. */
+  inputIndex: number;
+  startSec: number;
+  endSec: number;
+}
+
+/**
+ * Composites caption images over the cut video, each visible only while its line is being spoken.
+ * A still image input keeps yielding its last frame, so one PNG per line covers any span.
+ */
+export function captionOverlayChain(baseLabel: string | undefined, overlays: CaptionOverlay[]): FilterChain {
+  if (baseLabel === undefined || overlays.length === 0) return { filter: '', label: baseLabel };
+
+  const stages: string[] = [];
+  let previous = baseLabel;
+  overlays.forEach((overlay, i) => {
+    const label = `videosub${i}`;
+    stages.push(
+      `[${previous}][${overlay.inputIndex}:v]overlay=0:0:enable='between(t,${overlay.startSec.toFixed(3)},${overlay.endSec.toFixed(3)})'[${label}]`,
+    );
+    previous = label;
+  });
+  return { filter: stages.join(';'), label: previous };
+}
+
 export interface NarrationInput {
   inputIndex: number;
   delayMs: number;
@@ -159,10 +203,16 @@ export function narrationFilterChain(inputs: NarrationInput[]): FilterChain {
 }
 
 /** Trims/pads music to the reel's assembled length and fades its head and tail. */
-export function musicFilterChain(inputIndex: number, targetDurationSec: number, fadeSec: number): FilterChain {
+export function musicFilterChain(
+  inputIndex: number,
+  targetDurationSec: number,
+  fadeSec: number,
+  bedGain?: string,
+): FilterChain {
   const fade = Math.max(0, Math.min(fadeSec, targetDurationSec / 2));
+  const level = bedGain === undefined ? '' : `${bedGain},`;
   const filter =
-    `[${inputIndex}:a]aformat=sample_rates=${AUDIO_SAMPLE_RATE}:channel_layouts=stereo,` +
+    `[${inputIndex}:a]aformat=sample_rates=${AUDIO_SAMPLE_RATE}:channel_layouts=stereo,${level}` +
     `apad=whole_dur=${targetDurationSec.toFixed(3)}s,atrim=0:${targetDurationSec.toFixed(3)},` +
     `afade=t=in:st=0:d=${fade.toFixed(3)},afade=t=out:st=${(targetDurationSec - fade).toFixed(3)}:d=${fade.toFixed(3)}[musicraw]`;
   return { filter, label: 'musicraw' };
@@ -185,14 +235,16 @@ export function crossfadedMusicFilterChain(
   targetDurationSec: number,
   fadeSec: number,
   crossfadeSec: number,
+  bedGains: string[] = [],
 ): FilterChain {
   const crossfade = Math.max(0, Math.min(crossfadeSec, ...inputs.map((i) => i.durationSec / 2)));
   const parts: string[] = [];
 
   inputs.forEach((input, i) => {
     const span = i === inputs.length - 1 ? input.durationSec : input.durationSec + crossfade;
+    const level = bedGains[i] === undefined ? '' : `${bedGains[i]},`;
     parts.push(
-      `[${input.inputIndex}:a]aformat=sample_rates=${AUDIO_SAMPLE_RATE}:channel_layouts=stereo,` +
+      `[${input.inputIndex}:a]aformat=sample_rates=${AUDIO_SAMPLE_RATE}:channel_layouts=stereo,${level}` +
         `apad=whole_dur=${span.toFixed(3)}s,atrim=0:${span.toFixed(3)}[mus${i}]`,
     );
   });
@@ -313,11 +365,30 @@ function loudnormApplyFilter(stats: LoudnormStats): string {
 }
 
 /** A single track has no handover to make, so it takes the simpler chain. */
-function buildMusicChain(inputBase: number, startSecs: number[], totalSec: number): FilterChain | undefined {
+function buildMusicChain(
+  inputBase: number,
+  startSecs: number[],
+  totalSec: number,
+  bedGains: string[],
+): FilterChain | undefined {
   if (startSecs.length === 0) return undefined;
-  if (startSecs.length === 1) return musicFilterChain(inputBase, totalSec, DEFAULT_MUSIC_FADE_SEC);
+  if (startSecs.length === 1) return musicFilterChain(inputBase, totalSec, DEFAULT_MUSIC_FADE_SEC, bedGains[0]);
   const inputs = musicSpans(startSecs, totalSec).map((durationSec, i) => ({ inputIndex: inputBase + i, durationSec }));
-  return crossfadedMusicFilterChain(inputs, totalSec, DEFAULT_MUSIC_FADE_SEC, DEFAULT_MUSIC_CROSSFADE_SEC);
+  return crossfadedMusicFilterChain(inputs, totalSec, DEFAULT_MUSIC_FADE_SEC, DEFAULT_MUSIC_CROSSFADE_SEC, bedGains);
+}
+
+/**
+ * Static gain per track that brings a measured loudness to the bed target. Static rather than a
+ * `loudnorm` on the bus because a bed that keeps re-normalizing itself breathes against the
+ * narration ducking it.
+ */
+export function musicBedGainFilter(measuredLufs: number, targetLufs = MUSIC_BED_LUFS): string {
+  return `volume=${(targetLufs - measuredLufs).toFixed(2)}dB`;
+}
+
+async function measureIntegratedLufs(path: string): Promise<number> {
+  const { stderr } = await runFfmpegCapture(['-nostdin', '-i', path, '-af', loudnormAnalyzeFilter(), '-f', 'null', '-']);
+  return Number(parseLoudnormStats(stderr).input_i);
 }
 
 export async function assembleReel(reel: Reel, options: AssembleOptions): Promise<{ path: string; durationSec: number }> {
@@ -359,7 +430,7 @@ export async function assembleReel(reel: Reel, options: AssembleOptions): Promis
     const actualAtSec = Math.max(0, nominalAtSec - shotIndex * xfadeSec);
     const atempo = options.atempoByLine?.get(line.lineId);
     const durationSec = atempo !== undefined ? line.durationSec / atempo : line.durationSec;
-    return { path: line.path, durationSec, atSec: actualAtSec, atempo };
+    return { lineId: line.lineId, path: line.path, durationSec, atSec: actualAtSec, atempo };
   });
 
   const narrationInputBase = shotInputs.length;
@@ -375,81 +446,109 @@ export async function assembleReel(reel: Reel, options: AssembleOptions): Promis
   const filters = await listFfmpegFilters();
   const hasSidechain = filters.has('sidechaincompress');
 
+  const subtitlePath = options.subtitlePath;
+  const cues: SubtitleCue[] =
+    subtitlePath !== undefined && options.narrationText !== undefined
+      ? narrationResolved
+          .map((n) => ({ startSec: n.atSec, endSec: n.atSec + n.durationSec, text: options.narrationText?.get(n.lineId) ?? '' }))
+          .filter((cue) => cue.text.length > 0)
+          .sort((a, b) => a.startSec - b.startSec)
+      : [];
+  if (subtitlePath !== undefined) writeFileSync(subtitlePath, toSrt(cues));
+
+  const captionDir = cues.length > 0 ? mkdtempSync(join(tmpdir(), 'launchreel-captions-')) : undefined;
+  const captionInputBase = musicInputBase + musicPlacements.length;
+  const captionOverlays: CaptionOverlay[] = [];
+  if (captionDir !== undefined) {
+    for (const [i, cue] of cues.entries()) {
+      const path = await renderCaption(cue.text, { outDir: captionDir, width, height });
+      inputArgs.push('-i', path);
+      captionOverlays.push({ inputIndex: captionInputBase + i, startSec: cue.startSec, endSec: cue.endSec });
+    }
+  }
+  const captionChain = captionOverlayChain(videoChain.label, captionOverlays);
+  const videoLabel = captionChain.label;
+
   const narrChain = narrationFilterChain(
     narrationResolved.map((n, i) => ({ inputIndex: narrationInputBase + i, delayMs: Math.round(n.atSec * 1000), atempo: n.atempo })),
   );
-  const musicChain = buildMusicChain(musicInputBase, musicStarts, totalSec);
+  const bedGains = await Promise.all(musicPlacements.map(async (p) => musicBedGainFilter(await measureIntegratedLufs(p.path))));
+  const musicChain = buildMusicChain(musicInputBase, musicStarts, totalSec, bedGains);
   const narrationIntervals = narrationResolved.map((n) => ({ start: n.atSec, end: n.atSec + n.durationSec }));
   const mix = duckAndMix(musicChain?.label, narrChain.label, hasSidechain, narrationIntervals);
 
   const audioFilterComplex = [narrChain.filter, musicChain?.filter ?? '', mix.filter].filter((part) => part.length > 0).join(';');
-  const filterComplex = [videoChain.filter, audioFilterComplex].filter((part) => part.length > 0).join(';');
+  const filterComplex = [videoChain.filter, captionChain.filter, audioFilterComplex].filter((part) => part.length > 0).join(';');
 
-  if (mix.label === undefined) {
-    options.onProgress?.('render');
-    await runFfmpeg([
-      '-y',
-      ...inputArgs,
-      '-filter_complex',
-      filterComplex,
-      '-map',
-      `[${videoChain.label}]`,
-      '-r',
-      String(fps),
-      '-pix_fmt',
-      'yuv420p',
-      '-c:v',
-      'libx264',
-      '-movflags',
-      '+faststart',
-      options.outPath,
-    ]);
-  } else {
-    options.onProgress?.('loudnorm-analyze');
-    const { stderr } = await runFfmpegCapture([
-      ...inputArgs,
-      '-filter_complex',
-      `${audioFilterComplex};[${mix.label}]${loudnormAnalyzeFilter()}[loudnormanalysis]`,
-      '-map',
-      '[loudnormanalysis]',
-      '-f',
-      'null',
-      '-',
-    ]);
-    const stats = parseLoudnormStats(stderr);
+  try {
+    if (mix.label === undefined) {
+      options.onProgress?.('render');
+      await runFfmpeg([
+        '-y',
+        ...inputArgs,
+        '-filter_complex',
+        filterComplex,
+        '-map',
+        `[${videoLabel}]`,
+        '-r',
+        String(fps),
+        '-pix_fmt',
+        'yuv420p',
+        '-c:v',
+        'libx264',
+        '-movflags',
+        '+faststart',
+        options.outPath,
+      ]);
+    } else {
+      options.onProgress?.('loudnorm-analyze');
+      const { stderr } = await runFfmpegCapture([
+        ...inputArgs,
+        '-filter_complex',
+        `${audioFilterComplex};[${mix.label}]${loudnormAnalyzeFilter()}[loudnormanalysis]`,
+        '-map',
+        '[loudnormanalysis]',
+        '-f',
+        'null',
+        '-',
+      ]);
+      const stats = parseLoudnormStats(stderr);
 
-    options.onProgress?.('render');
-    await runFfmpeg([
-      '-y',
-      ...inputArgs,
-      '-filter_complex',
-      `${filterComplex};[${mix.label}]${loudnormApplyFilter(stats)}[aout]`,
-      '-map',
-      `[${videoChain.label}]`,
-      '-map',
-      '[aout]',
-      '-r',
-      String(fps),
-      '-pix_fmt',
-      'yuv420p',
-      '-c:v',
-      'libx264',
-      '-c:a',
-      'aac',
-      '-movflags',
-      '+faststart',
-      options.outPath,
-    ]);
+      options.onProgress?.('render');
+      await runFfmpeg([
+        '-y',
+        ...inputArgs,
+        '-filter_complex',
+        `${filterComplex};[${mix.label}]${loudnormApplyFilter(stats)}[aout]`,
+        '-map',
+        `[${videoLabel}]`,
+        '-map',
+        '[aout]',
+        '-r',
+        String(fps),
+        '-pix_fmt',
+        'yuv420p',
+        '-c:v',
+        'libx264',
+        '-c:a',
+        'aac',
+        '-movflags',
+        '+faststart',
+        options.outPath,
+      ]);
+    }
+
+    const durationSec = await probeDurationSec(options.outPath);
+    if (Math.abs(durationSec - totalSec) > DURATION_TOLERANCE_SEC) {
+      throw new Error(
+        `assembled reel duration ${durationSec.toFixed(2)}s does not match the expected ${totalSec.toFixed(2)}s ` +
+          `(>${DURATION_TOLERANCE_SEC}s off) — check the xfade offset math`,
+      );
+    }
+    return { path: options.outPath, durationSec };
+  } finally {
+    if (captionDir !== undefined) rmSync(captionDir, { recursive: true, force: true });
   }
-
-  const durationSec = await probeDurationSec(options.outPath);
-  if (Math.abs(durationSec - totalSec) > DURATION_TOLERANCE_SEC) {
-    throw new Error(
-      `assembled reel duration ${durationSec.toFixed(2)}s does not match the expected ${totalSec.toFixed(2)}s ` +
-        `(>${DURATION_TOLERANCE_SEC}s off) — check the xfade offset math`,
-    );
-  }
-  return { path: options.outPath, durationSec };
 }
 
 function errMessage(err: unknown): string {
