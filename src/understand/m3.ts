@@ -23,7 +23,7 @@ export const M3_MODEL = 'MiniMaxAI/MiniMax-M3';
 const DEFAULT_TARGET_DURATION_SEC = 30;
 const DEFAULT_MAX_REPAIRS = 2;
 /** Long-form reels are designed from a pitch and several recordings; the extra structure needs more room to get right. */
-const LONG_FORM_MAX_REPAIRS = 3;
+const LONG_FORM_MAX_REPAIRS = 4;
 /** A thirty-shot timeline is a long tool call, and the driver's default cuts it off mid-generation. */
 const LONG_FORM_TIMEOUT_MS = 900_000;
 /**
@@ -34,9 +34,11 @@ const LONG_FORM_TIMEOUT_MS = 900_000;
 const DESIGN_MAX_COMPLETION_TOKENS = 32_768;
 /**
  * How many attempts may be spent on quality complaints rather than validation failures. One round
- * per group, so the model gets a single instruction at a time and the important one is not diluted.
+ * per group, so the model gets a single instruction at a time and the important one is not diluted
+ * — which means this has to keep pace with the number of groups `advise` returns, or the last
+ * group is only ever reported, never acted on.
  */
-const MAX_ADVISORY_ROUNDS = 2;
+const MAX_ADVISORY_ROUNDS = 3;
 
 export interface DesignOptions {
   targetDurationSec?: number;
@@ -80,7 +82,10 @@ export async function designReel(recording: Recording, options: DesignOptions = 
   return runDesignLoop({
     messages: buildMessages(recording, { targetDurationSec, language, toolName: TOOL_NAME }),
     validate: (reel) => validateAgainstRecording(reel, recording.durationSec),
-    advise: (reel) => [narrationBudgetAdvisories(reel, narrationBudgetChars(targetDurationSec, language)), [...cardNarrationAdvisories(reel), ...narrationLineAdvisories(reel)]],
+    advise: (reel) => [
+      narrationBudgetAdvisories(reel, narrationBudgetChars(targetDurationSec, language)),
+      [...cardNarrationAdvisories(reel), ...narrationLineAdvisories(reel)],
+    ],
     multiSource: false,
     cachePath: planCachePath(options.cacheDir, 'plan', [recording, targetDurationSec, language, allowGenerated]),
     allowGenerated,
@@ -112,7 +117,8 @@ export async function designLongFormReel(
     validate: (reel) => validateAgainstFootage(reel, durations),
     advise: (reel) => [
       narrationBudgetAdvisories(reel, narrationBudgetChars(targetDurationSec, language)),
-      [...onsetAdvisories(reel, readable), ...repeatedRangeAdvisories(reel), ...cardNarrationAdvisories(reel), ...narrationLineAdvisories(reel)],
+      [...cardNarrationAdvisories(reel), ...narrationLineAdvisories(reel)],
+      [...onsetAdvisories(reel, readable), ...repeatedRangeAdvisories(reel)],
     ],
     multiSource: true,
     cachePath: planCachePath(options.cacheDir, 'plan-longform', [
