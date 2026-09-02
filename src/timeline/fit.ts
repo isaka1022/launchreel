@@ -511,3 +511,20 @@ export function cardNarrationAdvisories(reel: Reel): string[] {
         'Move the rest onto shots that show the footage backing them up, or cut them.',
     );
 }
+
+/**
+ * Narration lines holding more than one sentence. The prompt asks for one thought per line, which
+ * is unenforceable as written, so it gets said again in the one form that can be checked. A line
+ * is also a caption cue and the unit a shot is stretched to hold, so two sentences on one line
+ * make both a cue too long to read and a shot too long to watch.
+ */
+export function narrationLineAdvisories(reel: Reel): string[] {
+  return reel.narration.flatMap((line) => {
+    const sentences = line.text.split(/[.!?。！？]+(?:\s+|$)/).filter((part) => part.trim().length > 0);
+    if (sentences.length <= 1) return [];
+    return [
+      `narration "${line.id}" is ${sentences.length} sentences in one line ("${line.text}") — one thought per line. ` +
+        'Split it across shots that each show what it claims, or cut it down to the one sentence that earns the shot.',
+    ];
+  });
+}

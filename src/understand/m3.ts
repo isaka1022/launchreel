@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { chatCompletion, type ChatMessage, type ChatResponse, type ToolCall } from '../drivers/gmi.js';
 import { readableSpans } from '../ingest/activity.js';
 import { footageDurations, type FootageItem } from '../ingest/footage.js';
-import { cardNarrationAdvisories, narrationBudgetAdvisories, onsetAdvisories, repeatedRangeAdvisories } from '../timeline/fit.js';
+import { cardNarrationAdvisories, narrationBudgetAdvisories, narrationLineAdvisories, onsetAdvisories, repeatedRangeAdvisories } from '../timeline/fit.js';
 import type { Recording } from '../ingest/types.js';
 import { cacheKey } from '../order/media.js';
 import { formatZodIssues } from '../report.js';
@@ -80,7 +80,7 @@ export async function designReel(recording: Recording, options: DesignOptions = 
   return runDesignLoop({
     messages: buildMessages(recording, { targetDurationSec, language, toolName: TOOL_NAME }),
     validate: (reel) => validateAgainstRecording(reel, recording.durationSec),
-    advise: (reel) => [narrationBudgetAdvisories(reel, narrationBudgetChars(targetDurationSec, language)), cardNarrationAdvisories(reel)],
+    advise: (reel) => [narrationBudgetAdvisories(reel, narrationBudgetChars(targetDurationSec, language)), [...cardNarrationAdvisories(reel), ...narrationLineAdvisories(reel)]],
     multiSource: false,
     cachePath: planCachePath(options.cacheDir, 'plan', [recording, targetDurationSec, language, allowGenerated]),
     allowGenerated,
@@ -112,7 +112,7 @@ export async function designLongFormReel(
     validate: (reel) => validateAgainstFootage(reel, durations),
     advise: (reel) => [
       narrationBudgetAdvisories(reel, narrationBudgetChars(targetDurationSec, language)),
-      [...onsetAdvisories(reel, readable), ...repeatedRangeAdvisories(reel), ...cardNarrationAdvisories(reel)],
+      [...onsetAdvisories(reel, readable), ...repeatedRangeAdvisories(reel), ...cardNarrationAdvisories(reel), ...narrationLineAdvisories(reel)],
     ],
     multiSource: true,
     cachePath: planCachePath(options.cacheDir, 'plan-longform', [

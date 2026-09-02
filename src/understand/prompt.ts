@@ -104,6 +104,8 @@ function buildSystemPrompt(options: BuildMessagesOptions): string {
     'Keep cards a minority of the shots, and never place two back to back.',
     'A card carries at most one line of narration — the shot is stretched to hold whatever is said on it, so a card ' +
       'the narration talks over becomes the longest shot in the reel.',
+    'Write one sentence per narration line, never two — each line is also a subtitle cue and the unit a shot is ' +
+      'stretched to hold.',
     'If the previous call failed validation, fix exactly the problems listed and call the tool again.',
   ].join('\n');
 }
@@ -163,7 +165,9 @@ function buildLongFormSystemPrompt(footage: FootageItem[], options: BuildMessage
       : 'Write all narration, labels, and card text in English.',
     '',
     'The narration follows the pitch\'s argument in its own order, in spoken language — do not read the pitch aloud.',
-    'Break it into lines a person can say in one breath, one thought per line.',
+    'Break it into lines a person can say in one breath: one sentence per line, never two. Each line is also a ' +
+      'subtitle cue and the unit a shot is stretched to hold, so a line carrying two sentences makes both a caption ' +
+      'too long to read and a shot too long to watch.',
     'Back every claim with the footage that demonstrates it: a shot that says setup is easy shows the setup recording.',
     `Every "terminal" or "screencast" shot needs a "source" naming its recording (${ids}) and an evidenceRange [start, end] in that recording's own seconds.`,
     '',

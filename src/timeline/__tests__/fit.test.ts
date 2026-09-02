@@ -8,6 +8,7 @@ import {
   fitReel,
   motionBreakdown,
   narrationBudgetAdvisories,
+  narrationLineAdvisories,
   cardReadSec,
   onsetAdvisories,
   onsetAlignments,
@@ -443,5 +444,30 @@ describe('cardNarrationAdvisories', () => {
     const [advisory, ...rest] = cardNarrationAdvisories(r);
     expect(rest).toEqual([]);
     expect(advisory).toContain('card "s1" carries 2 narration lines (n1, n2)');
+  });
+});
+
+describe('narrationLineAdvisories', () => {
+  const withLines = (texts: string[]): Reel => ({
+    version: 'launchreel/1',
+    title: 'demo',
+    fps: 30,
+    shots: [{ id: 's1', kind: 'terminal', label: 'run', durationSec: 6, evidenceRange: [0, 6] }],
+    narration: texts.map((text, i) => ({ id: `n${i + 1}`, shotId: 's1', text })),
+    hitPoints: [],
+  });
+
+  it('leaves one sentence alone, trailing full stop or not', () => {
+    expect(narrationLineAdvisories(withLines(['One command, one video.', 'No API key']))).toEqual([]);
+  });
+
+  it('does not read a decimal as a sentence break', () => {
+    expect(narrationLineAdvisories(withLines(['Cuts land within 0.12s of a beat.']))).toEqual([]);
+  });
+
+  it('names the line and its sentence count', () => {
+    const [advisory, ...rest] = narrationLineAdvisories(withLines(['It ships with a session. No key. MIT.']));
+    expect(rest).toEqual([]);
+    expect(advisory).toContain('narration "n1" is 3 sentences in one line');
   });
 });
