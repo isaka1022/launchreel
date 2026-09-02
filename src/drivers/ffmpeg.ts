@@ -68,3 +68,42 @@ function isErrnoException(err: unknown): err is NodeJS.ErrnoException {
 function hasStderr(err: unknown): err is { stderr: string } {
   return typeof err === 'object' && err !== null && 'stderr' in err && typeof (err as { stderr: unknown }).stderr === 'string';
 }
+
+export interface FrameNormalization {
+  width: number;
+  height: number;
+  background: string;
+}
+
+/**
+ * Peak luma (0–255) inside a rectangle of one frame, after the same scale-and-pad the assembler
+ * applies, so the rectangle means the same thing here as it does in the finished reel. Bright text
+ * on a dark terminal peaks near 255; an empty stretch of background stays under 60.
+ */
+export async function peakLumaInBand(
+  path: string,
+  atSec: number,
+  frame: FrameNormalization,
+  band: { x: number; y: number; width: number; height: number },
+): Promise<number> {
+  const { stderr } = await runFfmpegCapture([
+    '-nostdin',
+    '-hide_banner',
+    '-ss',
+    Math.max(0, atSec).toFixed(3),
+    '-i',
+    path,
+    '-frames:v',
+    '1',
+    '-vf',
+    `scale=${frame.width}:${frame.height}:force_original_aspect_ratio=decrease,` +
+      `pad=${frame.width}:${frame.height}:(ow-iw)/2:(oh-ih)/2:color=${frame.background},` +
+      `crop=${band.width}:${band.height}:${band.x}:${band.y},signalstats,metadata=print`,
+    '-f',
+    'null',
+    '-',
+  ]);
+  const match = /lavfi\.signalstats\.YMAX=(\d+)/.exec(stderr);
+  if (!match) throw new Error(`signalstats produced no YMAX for ${path} at ${atSec.toFixed(2)}s`);
+  return Number(match[1]);
+}

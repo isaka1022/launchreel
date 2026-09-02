@@ -29,9 +29,38 @@ const BOX_PADDING_Y_RATIO = 0.45;
 /** Captions wrap within this share of the frame so they never run to the edges. */
 const MAX_WIDTH_RATIO = 0.8;
 
+export type CaptionPosition = 'bottom' | 'top';
+
 export interface CaptionLayout {
   width: number;
   height: number;
+  /** Bottom unless the picture has something there worth keeping visible. */
+  position?: CaptionPosition;
+}
+
+export interface Band {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** The most a caption at `position` can cover: two lines, at full measure. Used to decide where to put it. */
+export function captionBand(layout: CaptionLayout): Band {
+  const { width, height } = layout;
+  const fontSize = Math.round(height * FONT_RATIO);
+  const lineHeight = Math.round(fontSize * 1.35);
+  const paddingX = Math.round(fontSize * BOX_PADDING_X_RATIO);
+  const paddingY = Math.round(fontSize * BOX_PADDING_Y_RATIO);
+  const boxHeight = 2 * lineHeight + paddingY * 2;
+  const boxWidth = Math.round(width * MAX_WIDTH_RATIO) + paddingX * 2;
+  const margin = Math.round(height * BOTTOM_MARGIN_RATIO);
+  return {
+    x: Math.round((width - boxWidth) / 2),
+    y: layout.position === 'top' ? margin : height - margin - boxHeight,
+    width: boxWidth,
+    height: boxHeight,
+  };
 }
 
 export function buildCaptionSvg(text: string, layout: CaptionLayout): string {
@@ -47,7 +76,8 @@ export function buildCaptionSvg(text: string, layout: CaptionLayout): string {
   const longest = Math.max(...lines.map((line) => line.length));
   const boxWidth = Math.min(width - paddingX * 2, Math.round(longest * fontSize * 0.58) + paddingX * 2);
   const boxX = Math.round((width - boxWidth) / 2);
-  const boxY = height - Math.round(height * BOTTOM_MARGIN_RATIO) - boxHeight;
+  const margin = Math.round(height * BOTTOM_MARGIN_RATIO);
+  const boxY = layout.position === 'top' ? margin : height - margin - boxHeight;
 
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">`,
@@ -72,15 +102,15 @@ export interface RenderCaptionOptions extends CaptionLayout {
 
 /** Rasterizes one caption and returns the PNG path. Identical text reuses the same file. */
 export async function renderCaption(text: string, options: RenderCaptionOptions): Promise<string> {
-  const { outDir, width, height } = options;
+  const { outDir, width, height, position } = options;
   if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
 
-  const key = cacheKey([text, width, height]);
+  const key = cacheKey([text, width, height, position ?? 'bottom']);
   const pngPath = join(outDir, `caption-${key}.png`);
   if (existsSync(pngPath)) return pngPath;
 
   const svgPath = join(outDir, `caption-${key}.svg`);
-  writeFileSync(svgPath, buildCaptionSvg(text, { width, height }));
+  writeFileSync(svgPath, buildCaptionSvg(text, { width, height, position }));
   try {
     await renderSvg({ svgPath, outPngPath: pngPath });
   } finally {

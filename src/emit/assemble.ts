@@ -1,10 +1,10 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { listFfmpegFilters, runFfmpeg, runFfmpegCapture } from '../drivers/ffmpeg.js';
+import { listFfmpegFilters, peakLumaInBand, runFfmpeg, runFfmpegCapture } from '../drivers/ffmpeg.js';
 import { toSrt, type SubtitleCue } from './subtitles.js';
 import { probeDurationSec, probeStreamDurationSec } from '../drivers/probe.js';
-import { renderCaption } from '../render/caption.js';
+import { captionBand, renderCaption, type CaptionPosition } from '../render/caption.js';
 import { DEFAULT_BACKGROUND } from '../render/card.js';
 import { shotSpans, type Reel, type ShotSpan } from '../timeline/schema.js';
 import type { SynthesizedLine } from '../order/speech.js';
@@ -26,6 +26,8 @@ const DEFAULT_MUSIC_FADE_SEC = 1.5;
 const DEFAULT_MUSIC_CROSSFADE_SEC = 1.5;
 const MIN_XFADE_SEC = 0.02;
 const LOUDNESS_TARGET_LUFS = -16;
+/** Peak luma above which the band under a caption is taken to hold text the caption would hide. */
+const OCCUPIED_LUMA = 120;
 /**
  * Where the music bed sits before ducking. Music 3.0 masters its tracks about as loud as the
  * synthesized narration, so mixing the two as they arrive buries the voice — and the ducking
@@ -122,14 +124,24 @@ interface FilterChain {
 export function videoFilterChain(
   shotCount: number,
   durations: number[],
-  opts: { width: number; height: number; fps: number; background: string; xfadeSec: number },
+  opts: {
+    width: number;
+    height: number;
+    fps: number;
+    background: string;
+    xfadeSec: number;
+    /** Per shot, pixels along the bottom the picture must stay out of. Zero (or absent) fills the frame. */
+    reserveBottom?: number[];
+  },
 ): FilterChain {
   const { width, height, fps, background, xfadeSec } = opts;
   const parts: string[] = [];
   for (let i = 0; i < shotCount; i++) {
+    const reserve = opts.reserveBottom?.[i] ?? 0;
+    const fitHeight = height - reserve;
     parts.push(
-      `[${i}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
-        `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=${background},setsar=1,fps=${fps},format=yuv420p[v${i}]`,
+      `[${i}:v]scale=${width}:${fitHeight}:force_original_aspect_ratio=decrease,` +
+        `pad=${width}:${height}:(ow-iw)/2:(${fitHeight}-ih)/2:color=${background},setsar=1,fps=${fps},format=yuv420p[v${i}]`,
     );
   }
   if (shotCount === 1) return { filter: parts.join(';'), label: 'v0' };
@@ -432,7 +444,20 @@ export async function assembleReel(reel: Reel, options: AssembleOptions): Promis
   for (const s of shotInputs) inputArgs.push('-i', s.path);
 
   options.onProgress?.('video');
-  const videoChain = videoFilterChain(shotInputs.length, durations, { width, height, fps, background: DEFAULT_BACKGROUND, xfadeSec });
+  // Footage that fills the frame has nowhere to put a caption — a terminal printing the numbers the
+  // narration is reading out is exactly what a caption over it would hide — so with captions on,
+  // footage shots keep clear of the caption band and cards, which already do, are left alone.
+  const captionsOn = options.subtitlePath !== undefined && options.narrationText !== undefined;
+  const bandHeight = height - captionBand({ width, height, position: 'bottom' }).y;
+  const reserveBottom = reel.shots.map((shot) => (captionsOn && shot.kind !== 'card' ? bandHeight : 0));
+  const videoChain = videoFilterChain(shotInputs.length, durations, {
+    width,
+    height,
+    fps,
+    background: DEFAULT_BACKGROUND,
+    xfadeSec,
+    reserveBottom,
+  });
 
   const shotIndexById = new Map(reel.shots.map((s, i) => [s.id, i]));
   const nominalSpans = shotSpans(reel);
@@ -482,7 +507,8 @@ export async function assembleReel(reel: Reel, options: AssembleOptions): Promis
   const captionOverlays: CaptionOverlay[] = [];
   if (captionDir !== undefined) {
     for (const [i, cue] of cues.entries()) {
-      const path = await renderCaption(cue.text, { outDir: captionDir, width, height });
+      const position = await captionPosition(cue, shotInputs, durations, xfadeSec, { width, height });
+      const path = await renderCaption(cue.text, { outDir: captionDir, width, height, position });
       inputArgs.push('-i', path);
       captionOverlays.push({ inputIndex: captionInputBase + i, startSec: cue.startSec, endSec: cue.endSec });
     }
@@ -581,6 +607,32 @@ export async function assembleReel(reel: Reel, options: AssembleOptions): Promis
   } finally {
     if (captionDir !== undefined) rmSync(captionDir, { recursive: true, force: true });
   }
+}
+
+/**
+ * A caption sits at the bottom unless the picture has text there while it is up — a terminal
+ * printing the very number the narration is describing, say — in which case it moves to the top.
+ * Decided by looking at the frame, not by shot kind: cards have text near the bottom too.
+ */
+async function captionPosition(
+  cue: SubtitleCue,
+  shots: { path: string; durationSec: number }[],
+  durations: number[],
+  xfadeSec: number,
+  frame: { width: number; height: number },
+): Promise<CaptionPosition> {
+  const midSec = (cue.startSec + cue.endSec) / 2;
+  const starts = shotStartOffsets(durations, xfadeSec);
+  let index = starts.findIndex((start, i) => midSec < start + durations[i]!);
+  if (index < 0) index = shots.length - 1;
+  const shot = shots[index]!;
+  const localSec = Math.min(shot.durationSec - 0.05, Math.max(0, midSec - starts[index]!));
+  const norm = { ...frame, background: DEFAULT_BACKGROUND };
+
+  const bottom = await peakLumaInBand(shot.path, localSec, norm, captionBand({ ...frame, position: 'bottom' }));
+  if (bottom < OCCUPIED_LUMA) return 'bottom';
+  const top = await peakLumaInBand(shot.path, localSec, norm, captionBand({ ...frame, position: 'top' }));
+  return top < OCCUPIED_LUMA ? 'top' : 'bottom';
 }
 
 function errMessage(err: unknown): string {
