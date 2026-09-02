@@ -7,71 +7,51 @@
       {
         "id": "s1",
         "kind": "card",
-        "durationSec": 5,
+        "durationSec": 4.5,
         "label": "Title card",
         "card": {
-          "title": "From terminal capture to polished Reel — in one command",
-          "command": "npx launchreel build examples/self --offline"
+          "title": "LaunchReel",
+          "subtitle": "build · narrate · score · assemble"
         }
       },
       {
         "id": "s2",
         "kind": "terminal",
         "durationSec": 6,
-        "label": "build: pipeline summary",
+        "label": "One command, real output",
         "source": "build",
         "evidenceRange": [
           0,
-          6
+          2.57
         ]
       },
       {
         "id": "s3",
         "kind": "terminal",
-        "durationSec": 6.5,
-        "label": "build: motion + render breakdown",
-        "source": "build",
+        "durationSec": 6,
+        "label": "Reading a cast file",
+        "source": "inspect",
         "evidenceRange": [
-          5.28,
-          9.65
+          0,
+          0.78
         ]
       },
       {
         "id": "s4",
-        "kind": "card",
-        "durationSec": 4,
-        "label": "Chapter: Reading the evidence",
-        "card": {
-          "title": "Reading the evidence"
-        }
+        "kind": "terminal",
+        "durationSec": 5,
+        "label": "Fitting narration to shots",
+        "source": "inspect",
+        "evidenceRange": [
+          2.79,
+          3.55
+        ]
       },
       {
         "id": "s5",
         "kind": "terminal",
-        "durationSec": 6,
-        "label": "inspect: ingest parses the cast",
-        "source": "inspect",
-        "evidenceRange": [
-          0,
-          2.79
-        ]
-      },
-      {
-        "id": "s6",
-        "kind": "terminal",
-        "durationSec": 5.5,
-        "label": "inspect: fit lines narration to shots",
-        "source": "inspect",
-        "evidenceRange": [
-          2.39,
-          5.96
-        ]
-      },
-      {
-        "id": "s7",
-        "kind": "terminal",
-        "durationSec": 5.5,
-        "label": "inspect: reel.json head",
+        "durationSec": 5,
+        "label": "The reel.json it produces",
         "source": "inspect",
         "evidenceRange": [
           5.96,
@@ -79,39 +59,96 @@
         ]
       },
       {
-        "id": "s8",
+        "id": "s6",
         "kind": "card",
-        "durationSec": 4,
-        "label": "Chapter: Measuring the music",
+        "durationSec": 4.5,
+        "label": "Chapter: Music",
         "card": {
-          "title": "Measuring the music"
+          "title": "The hard part",
+          "subtitle": "music has no edits"
         }
+      },
+      {
+        "id": "s7",
+        "kind": "terminal",
+        "durationSec": 5,
+        "label": "Three candidates, three tempos",
+        "source": "build",
+        "evidenceRange": [
+          9.65,
+          11.06
+        ]
+      },
+      {
+        "id": "s8",
+        "kind": "terminal",
+        "durationSec": 5,
+        "label": "Snapped hit points on the beats",
+        "source": "build",
+        "evidenceRange": [
+          15.01,
+          16.22
+        ]
       },
       {
         "id": "s9",
         "kind": "terminal",
-        "durationSec": 7,
-        "label": "build: score candidates, selected track 2",
-        "source": "build",
+        "durationSec": 5,
+        "label": "The report says what won",
+        "source": "timeline",
         "evidenceRange": [
-          9.65,
-          16.22
+          0,
+          0.82
         ]
       },
       {
         "id": "s10",
         "kind": "card",
         "durationSec": 4,
-        "label": "Chapter: The OTIO timeline",
+        "label": "Chapter: Output",
         "card": {
-          "title": "You get the project file"
+          "title": "What you get",
+          "subtitle": "mp4 and the project file"
         }
       },
       {
         "id": "s11",
         "kind": "terminal",
-        "durationSec": 5.5,
-        "label": "build: otiotool stats",
+        "durationSec": 5,
+        "label": "OTIO with marked cut points",
+        "source": "timeline",
+        "evidenceRange": [
+          2.83,
+          3.63
+        ]
+      },
+      {
+        "id": "s12",
+        "kind": "terminal",
+        "durationSec": 5,
+        "label": "Round-trip to Final Cut",
+        "source": "timeline",
+        "evidenceRange": [
+          5.64,
+          6.57
+        ]
+      },
+      {
+        "id": "s13",
+        "kind": "terminal",
+        "durationSec": 6,
+        "label": "Assemble + render report",
+        "source": "build",
+        "evidenceRange": [
+          11.06,
+          15.01
+        ]
+      },
+      {
+        "id": "s14",
+        "kind": "terminal",
+        "durationSec": 5,
+        "label": "otiotool reads the timeline",
         "source": "build",
         "evidenceRange": [
           16.22,
@@ -119,10 +156,10 @@
         ]
       },
       {
-        "id": "s12",
+        "id": "s15",
         "kind": "terminal",
         "durationSec": 5,
-        "label": "build: ffprobe reel.mp4",
+        "label": "1920x1080 h264, ready to ship",
         "source": "build",
         "evidenceRange": [
           19.56,
@@ -130,77 +167,25 @@
         ]
       },
       {
-        "id": "s13",
-        "kind": "terminal",
-        "durationSec": 5,
-        "label": "timeline: reel.report.json",
-        "source": "timeline",
-        "evidenceRange": [
-          0,
-          2.83
-        ]
-      },
-      {
-        "id": "s14",
-        "kind": "terminal",
-        "durationSec": 4.5,
-        "label": "timeline: marked ranges in OTIO",
-        "source": "timeline",
-        "evidenceRange": [
-          2.43,
-          3.63
-        ]
-      },
-      {
-        "id": "s15",
-        "kind": "terminal",
-        "durationSec": 4.5,
-        "label": "timeline: FCPXML conversion",
-        "source": "timeline",
-        "evidenceRange": [
-          5.24,
-          6.57
-        ]
-      },
-      {
         "id": "s16",
-        "kind": "card",
-        "durationSec": 4,
-        "label": "Chapter: It actually runs",
-        "card": {
-          "title": "It actually runs"
-        }
-      },
-      {
-        "id": "s17",
         "kind": "terminal",
         "durationSec": 5,
-        "label": "setup: tests pass",
+        "label": "Tests and gate, all green",
         "source": "setup",
         "evidenceRange": [
-          6.12,
+          6.52,
           7.92
         ]
       },
       {
-        "id": "s18",
-        "kind": "terminal",
-        "durationSec": 6,
-        "label": "setup: gate runs all checks",
-        "source": "setup",
-        "evidenceRange": [
-          21.37,
-          21.77
-        ]
-      },
-      {
-        "id": "s19",
+        "id": "s17",
         "kind": "card",
-        "durationSec": 4,
-        "label": "Closing card",
+        "durationSec": 5,
+        "label": "Try it",
         "card": {
-          "title": "Free and open source. MIT.",
-          "subtitle": "npx launchreel build examples/self --offline"
+          "title": "Try it",
+          "subtitle": "npx launchreel build examples/self --offline",
+          "command": "npx launchreel build examples/self --offline"
         }
       }
     ],
@@ -208,200 +193,177 @@
       {
         "id": "n1",
         "shotId": "s1",
-        "text": "You shipped something, and now you need a video about it."
+        "text": "You shipped something, and the demo video is eating your day."
       },
       {
         "id": "n2",
-        "shotId": "s1",
-        "text": "Every demo tool hands you a flat mp4."
+        "shotId": "s2",
+        "text": "One command reads a terminal and designs the whole video."
       },
       {
         "id": "n3",
-        "shotId": "s2",
-        "text": "LaunchReel reads a terminal recording you already know how to make."
+        "shotId": "s3",
+        "text": "It parses the cast and finds the moments that matter."
       },
       {
         "id": "n4",
-        "shotId": "s2",
-        "text": "One command, fully offline."
+        "shotId": "s4",
+        "text": "Every line is synthesized and measured before a shot is fixed."
       },
       {
         "id": "n5",
-        "shotId": "s3",
-        "text": "M3 plans the shots, narrates, scores, and assembles."
+        "shotId": "s5",
+        "text": "The result is a real, editable reel, not a flat mp4."
       },
       {
         "id": "n6",
-        "shotId": "s4",
-        "text": "It starts by ingesting the cast file."
+        "shotId": "s6",
+        "text": "Music is where this gets genuinely hard."
       },
       {
         "id": "n7",
-        "shotId": "s5",
-        "text": "Every command and output is timestamped and ready."
+        "shotId": "s7",
+        "text": "Three candidates, three tempos, and the one that lands wins."
       },
       {
         "id": "n8",
-        "shotId": "s6",
-        "text": "Narration is fit to each shot."
+        "shotId": "s8",
+        "text": "The cuts snap onto the beats the music really has."
       },
       {
         "id": "n9",
-        "shotId": "s7",
-        "text": "The result is a structured Reel."
+        "shotId": "s9",
+        "text": "The report shows why it won."
       },
       {
         "id": "n10",
-        "shotId": "s8",
-        "text": "Music is the hard part."
+        "shotId": "s10",
+        "text": "And you don't just get the video."
       },
       {
         "id": "n11",
-        "shotId": "s9",
-        "text": "Three candidates are generated and measured with librosa."
+        "shotId": "s11",
+        "text": "You get the timeline, cuts marked where the beats are."
       },
       {
         "id": "n12",
-        "shotId": "s9",
-        "text": "Track two wins because its first beat sits nearest the first cut."
+        "shotId": "s12",
+        "text": "It opens in any tool that speaks OTIO, including Final Cut."
       },
       {
         "id": "n13",
-        "shotId": "s10",
-        "text": "And you get the project file, not just the mp4."
+        "shotId": "s13",
+        "text": "Render, assemble, and the shot report lands beside the mp4."
       },
       {
         "id": "n14",
-        "shotId": "s11",
-        "text": "Reel.otio opens in a real editor, shot by shot."
+        "shotId": "s14",
+        "text": "The timeline round-trips through a real stats tool."
       },
       {
         "id": "n15",
-        "shotId": "s12",
-        "text": "No other tool in this space gives you that."
+        "shotId": "s15",
+        "text": "h264, 1920 by 1080, ready for the README."
       },
       {
         "id": "n16",
-        "shotId": "s13",
-        "text": "The report shows the plan and the beats it found."
+        "shotId": "s16",
+        "text": "Tests and the build gate are green before anything ships."
       },
       {
         "id": "n17",
-        "shotId": "s14",
-        "text": "Cuts land where the beats actually sit."
-      },
-      {
-        "id": "n18",
-        "shotId": "s15",
-        "text": "And it round-trips through FCPXML."
-      },
-      {
-        "id": "n19",
-        "shotId": "s16",
-        "text": "It ships with a recorded session and everything it generated."
-      },
-      {
-        "id": "n20",
         "shotId": "s17",
-        "text": "The first run needs no setup."
-      },
-      {
-        "id": "n21",
-        "shotId": "s18",
-        "text": "The gate runs every check end to end."
-      },
-      {
-        "id": "n22",
-        "shotId": "s19",
-        "text": "Free and open source, MIT licensed."
+        "text": "Free, MIT, and the first run needs no API key."
       }
     ],
     "music": {
-      "caption": "Upbeat electronic underscore with a clear four-on-the-floor pulse; intro sustains, then a steady beat carries the rest.",
+      "caption": "LaunchReel promo — confident, developer-focused underscore with a clear pulse for cut points.",
       "structureTags": [
         "intro",
-        "build",
-        "drop",
-        "sustain"
+        "build-up",
+        "climax at music selection beat",
+        "resolve"
       ],
       "targetDurationSec": 90
     },
     "hitPoints": [
-      4.18,
-      12.11,
-      18.26,
-      26.13,
-      32.26
+      4,
+      12,
+      22,
+      34,
+      46,
+      58,
+      70,
+      82
     ]
   },
   "attempts": [
     {
       "attempt": 1,
-      "problems": [
-        "shot \"s18\" reads up to 23.97s but the recording of source \"setup\" is only 21.77s long"
+      "problems": [],
+      "advisories": [
+        "the narration totals 1088 characters against a budget of 945 — 143 over. Cut whole sentences rather than trimming every line: the reel is stretched to fit whatever is written, so going over does not make it denser, it makes it longer and holds shots on a frozen frame.",
+        "narration \"n7\" is 2 sentences in one line (\"So we don't ask the model to hit our marks. We generate three candidates, measure the beats on each, and pick the one that actually lands.\") — one thought per line. Split it across shots that each show what it claims, or cut it down to the one sentence that earns the shot.",
+        "narration \"n17\" is 2 sentences in one line (\"Free, MIT, and the first run needs no API key. Try it.\") — one thought per line. Split it across shots that each show what it claims, or cut it down to the one sentence that earns the shot.",
+        "shot \"s7\" joins \"build\" 1.41s after the screen started drawing at 9.65s — start it there instead",
+        "shot \"s8\" joins \"build\" 5.36s after the screen started drawing at 9.65s — start it there instead",
+        "shot \"s14\" joins \"build\" 6.57s after the screen started drawing at 9.65s — start it there instead",
+        "shot \"s15\" joins \"build\" 9.91s after the screen started drawing at 9.65s — start it there instead"
       ],
       "usage": {
         "promptTokens": 7596,
-        "completionTokens": 3010
+        "completionTokens": 2904
       }
     },
     {
       "attempt": 2,
       "problems": [],
       "advisories": [
-        "the narration totals 1394 characters against a budget of 945 — 449 over. Cut whole sentences rather than trimming every line: the reel is stretched to fit whatever is written, so going over does not make it denser, it makes it longer and holds shots on a frozen frame.",
-        "shot \"s3\" opens on 4.37s of a screen that is not moving; the next thing drawn is at 9.65s — start it there instead",
-        "shot \"s11\" joins \"build\" 6.57s after the screen started drawing at 9.65s — start it there instead",
-        "shot \"s12\" joins \"build\" 9.91s after the screen started drawing at 9.65s — start it there instead",
-        "shot \"s18\" starts at 21.37s of \"setup\", after which nothing is ever drawn",
-        "card \"s1\" carries 2 narration lines (n1, n2) — a card holds at most one. Move the rest onto shots that show the footage backing them up, or cut them.",
-        "narration \"n8\" is 2 sentences in one line (\"Then the narration is fit to each shot. Long lines extend the shot; lines that cannot fit go back for a rewrite.\") — one thought per line. Split it across shots that each show what it claims, or cut it down to the one sentence that earns the shot."
+        "narration \"n7\" is 2 sentences in one line (\"Three candidates, three tempos. The cuts snap onto the beats the music really has.\") — one thought per line. Split it across shots that each show what it claims, or cut it down to the one sentence that earns the shot.",
+        "shot \"s7\" joins \"build\" 1.41s after the screen started drawing at 9.65s — start it there instead",
+        "shot \"s8\" joins \"build\" 5.36s after the screen started drawing at 9.65s — start it there instead",
+        "shot \"s14\" joins \"build\" 6.57s after the screen started drawing at 9.65s — start it there instead",
+        "shot \"s15\" joins \"build\" 9.91s after the screen started drawing at 9.65s — start it there instead"
       ],
       "usage": {
-        "promptTokens": 10652,
-        "completionTokens": 3010
+        "promptTokens": 10573,
+        "completionTokens": 2624
       }
     },
     {
       "attempt": 3,
       "problems": [],
       "advisories": [
-        "the narration totals 997 characters against a budget of 945 — 52 over. Cut whole sentences rather than trimming every line: the reel is stretched to fit whatever is written, so going over does not make it denser, it makes it longer and holds shots on a frozen frame.",
-        "shot \"s3\" opens on 4.37s of a screen that is not moving; the next thing drawn is at 9.65s — start it there instead",
-        "shot \"s11\" joins \"build\" 6.57s after the screen started drawing at 9.65s — start it there instead",
-        "shot \"s12\" joins \"build\" 9.91s after the screen started drawing at 9.65s — start it there instead",
-        "shot \"s18\" starts at 21.37s of \"setup\", after which nothing is ever drawn",
-        "card \"s1\" carries 2 narration lines (n1, n2) — a card holds at most one. Move the rest onto shots that show the footage backing them up, or cut them."
+        "shot \"s7\" joins \"build\" 1.41s after the screen started drawing at 9.65s — start it there instead",
+        "shot \"s8\" joins \"build\" 5.36s after the screen started drawing at 9.65s — start it there instead",
+        "shot \"s14\" joins \"build\" 6.57s after the screen started drawing at 9.65s — start it there instead",
+        "shot \"s15\" joins \"build\" 9.91s after the screen started drawing at 9.65s — start it there instead"
       ],
       "usage": {
-        "promptTokens": 13736,
-        "completionTokens": 2919
+        "promptTokens": 13272,
+        "completionTokens": 2619
       }
     },
     {
       "attempt": 4,
       "problems": [],
       "advisories": [
-        "the narration totals 955 characters against a budget of 945 — 10 over. Cut whole sentences rather than trimming every line: the reel is stretched to fit whatever is written, so going over does not make it denser, it makes it longer and holds shots on a frozen frame.",
-        "shot \"s3\" opens on 4.37s of a screen that is not moving; the next thing drawn is at 9.65s — start it there instead",
-        "shot \"s11\" joins \"build\" 6.57s after the screen started drawing at 9.65s — start it there instead",
-        "shot \"s12\" joins \"build\" 9.91s after the screen started drawing at 9.65s — start it there instead",
-        "shot \"s18\" starts at 21.37s of \"setup\", after which nothing is ever drawn",
-        "card \"s1\" carries 2 narration lines (n1, n2) — a card holds at most one. Move the rest onto shots that show the footage backing them up, or cut them."
+        "shot \"s8\" joins \"build\" 5.36s after the screen started drawing at 9.65s — start it there instead",
+        "shot \"s13\" joins \"build\" 1.41s after the screen started drawing at 9.65s — start it there instead",
+        "shot \"s14\" joins \"build\" 6.57s after the screen started drawing at 9.65s — start it there instead",
+        "shot \"s15\" joins \"build\" 9.91s after the screen started drawing at 9.65s — start it there instead"
       ],
       "usage": {
-        "promptTokens": 16728,
-        "completionTokens": 2910
+        "promptTokens": 16033,
+        "completionTokens": 2949
       }
     }
   ],
   "advisories": [
-    "the narration totals 955 characters against a budget of 945 — 10 over. Cut whole sentences rather than trimming every line: the reel is stretched to fit whatever is written, so going over does not make it denser, it makes it longer and holds shots on a frozen frame.",
-    "shot \"s3\" opens on 4.37s of a screen that is not moving; the next thing drawn is at 9.65s — start it there instead",
-    "shot \"s11\" joins \"build\" 6.57s after the screen started drawing at 9.65s — start it there instead",
-    "shot \"s12\" joins \"build\" 9.91s after the screen started drawing at 9.65s — start it there instead",
-    "shot \"s18\" starts at 21.37s of \"setup\", after which nothing is ever drawn",
-    "card \"s1\" carries 2 narration lines (n1, n2) — a card holds at most one. Move the rest onto shots that show the footage backing them up, or cut them."
+    "shot \"s8\" joins \"build\" 5.36s after the screen started drawing at 9.65s — start it there instead",
+    "shot \"s13\" joins \"build\" 1.41s after the screen started drawing at 9.65s — start it there instead",
+    "shot \"s14\" joins \"build\" 6.57s after the screen started drawing at 9.65s — start it there instead",
+    "shot \"s15\" joins \"build\" 9.91s after the screen started drawing at 9.65s — start it there instead"
   ],
   "promptHash": "9dc2abd4f2f3"
 }

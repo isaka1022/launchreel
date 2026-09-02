@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { chooseBestTrack, scoreTrack, snapReel, type TrackAnalysis } from '../snap.js';
+import { chooseBestTrack, cutHitPoints, scoreTrack, snapReel, type TrackAnalysis } from '../snap.js';
 import type { Reel } from '../schema.js';
 
 const fixturePath = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'bgm-analysis.json');
@@ -99,5 +99,28 @@ describe('snapReel', () => {
     expect(snapped.hitPoints[0]).toBe(2.0);
     expect(snapped.shots[0]!.durationSec).toBe(3);
     expect(snapped.shots[1]!.durationSec).toBe(4);
+  });
+});
+
+describe('cutHitPoints', () => {
+  const reel = (durations: number[], hitPoints: number[]): Reel => ({
+    version: 'launchreel/1',
+    title: 'demo',
+    fps: 30,
+    shots: durations.map((durationSec, i) => ({ id: `s${i + 1}`, kind: 'card', label: `s${i + 1}`, durationSec, card: { title: 'x' } })),
+    narration: [],
+    hitPoints,
+  });
+
+  it('offers every cut, and not the reel end', () => {
+    expect(cutHitPoints(reel([3, 4, 5], []))).toEqual([3, 7]);
+  });
+
+  it('keeps a point the model named inside a shot', () => {
+    expect(cutHitPoints(reel([3, 4], [1.5]))).toEqual([1.5, 3]);
+  });
+
+  it('does not count a named point sitting on a cut twice', () => {
+    expect(cutHitPoints(reel([3, 4], [3.05]))).toEqual([3]);
   });
 });

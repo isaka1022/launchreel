@@ -49,7 +49,7 @@ import { synthesizeLines, type SpeechProvider, type SynthesizedLine } from './or
 import { generateTracks, type GeneratedTrack } from './order/music.js';
 import { CACHE_DIR_NAME } from './order/media.js';
 import { analyzeTrack } from './order/analysis.js';
-import { chooseBestTrack, scoreTrack, snapReel, type TrackAnalysis, type TrackScore } from './timeline/snap.js';
+import { chooseBestTrack, cutHitPoints, scoreTrack, snapReel, type TrackAnalysis, type TrackScore } from './timeline/snap.js';
 import {
   applySegmentReel,
   musicSpecForSegment,
@@ -372,7 +372,9 @@ async function scoreReel(reel: Reel, options: ScoreOptions): Promise<ScoreResult
   if (!reel.music) throw new Error('reel has no "music" spec — nothing to score');
   const music = reel.music;
 
-  let current = reel;
+  // Which cuts should land on a beat is not the model's call — every cut is one. It names a
+  // handful, and scoring a track against only those picks a track for a fraction of the reel.
+  let current: Reel = { ...reel, hitPoints: cutHitPoints(reel) };
   const segments: ScoredSegment[] = [];
   let fromShot = 0;
 

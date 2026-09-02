@@ -118,6 +118,28 @@ function nearestBoundaryIndex(hitPoint: number, boundaries: number[]): number | 
   return bestIndex;
 }
 
+/**
+ * Every cut is a moment the music could land on, so the set to align is the reel's own cut
+ * boundaries — not just the ones the model happened to name. Left to itself the model nominates a
+ * handful, which leaves most cuts floating against a track that was chosen and snapped for the
+ * few. Its own points are kept and merged in: it may mark a beat inside a shot, which is a thing
+ * only it can know. Deduped within tolerance so a named point sitting on a cut is not counted twice.
+ */
+export function cutHitPoints(reel: Reel, options: SnapOptions = {}): number[] {
+  const toleranceSec = options.toleranceSec ?? DEFAULT_TOLERANCE_SEC;
+  const boundaries = shotSpans(reel)
+    .slice(0, -1)
+    .map((span) => span.end);
+
+  const merged: number[] = [];
+  for (const point of [...boundaries, ...reel.hitPoints].sort((a, b) => a - b)) {
+    const last = merged[merged.length - 1];
+    if (last !== undefined && point - last <= toleranceSec) continue;
+    merged.push(point);
+  }
+  return merged;
+}
+
 export function snapReel(reel: Reel, analysis: TrackAnalysis, options: SnapOptions = {}): { reel: Reel; score: TrackScore } {
   const toleranceSec = options.toleranceSec ?? DEFAULT_TOLERANCE_SEC;
   const score = scoreTrack(reel.hitPoints, analysis, options);
