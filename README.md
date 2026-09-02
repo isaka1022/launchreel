@@ -8,6 +8,14 @@ spend building. LaunchReel reads recordings you already know how to make (`ascii
 works out what was actually demonstrated, and builds the video around it — narration, a generated
 soundtrack, title cards, cuts.
 
+[![LaunchReel — a reel LaunchReel made of itself](https://img.youtube.com/vi/8AjC9xBeQHA/maxresdefault.jpg)](https://youtu.be/8AjC9xBeQHA)
+
+That video is not a mockup and nobody edited it. It is `reel.mp4` from `launchreel build
+examples/self` — one `asciinema` recording of this tool running, read by M3, narrated by Speech
+2.8, cut to a Music 3.0 track that was measured rather than requested. The command below rebuilds
+that mp4 with no API key — and rebuilds it identically, two runs giving the same file byte for
+byte, because everything the model decided is committed as a fixture.
+
 ```bash
 git clone https://github.com/isaka1022/launchreel && cd launchreel
 npm install && npm run build
