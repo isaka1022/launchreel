@@ -68,6 +68,8 @@ interface ShotLineCalc {
 
 export function fitReel(reel: Reel, options: FitOptions = {}): { reel: Reel; report: FitReport } {
   const lineGapSec = options.lineGapSec ?? DEFAULT_LINE_GAP_SEC;
+  /** Master-time point where the next narration line may begin. Only ever moves forward. */
+  let narrationFreeSec = 0;
   const padSec = options.padSec ?? DEFAULT_PAD_SEC;
   const maxShotSec = options.maxShotSec ?? DEFAULT_MAX_SHOT_SEC;
 
@@ -117,10 +119,13 @@ export function fitReel(reel: Reel, options: FitOptions = {}): { reel: Reel; rep
     const holdSec = available !== undefined && durationSec > available ? durationSec - available : 0;
 
     const shotStart = masterCursor;
-    let cursor = padSec;
     for (const { line, speechSec } of calc) {
-      const atSec = line.atSec ?? shotStart + cursor;
-      cursor = (line.atSec !== undefined ? line.atSec - shotStart : cursor) + speechSec + lineGapSec;
+      // The model proposes when a line should land, but only the measured speech knows whether that
+      // proposal leaves room for the line before it. A proposal is therefore a desired earliest
+      // start, held back to wherever the previous line actually finished.
+      const desired = line.atSec ?? Math.max(shotStart + padSec, narrationFreeSec);
+      const atSec = Math.max(desired, narrationFreeSec);
+      narrationFreeSec = atSec + speechSec + lineGapSec;
 
       const lineFit: LineFit = { lineId: line.id, shotId: shot.id, speechSec, atSec, tier };
       if (tier === 'needs-rewrite') {

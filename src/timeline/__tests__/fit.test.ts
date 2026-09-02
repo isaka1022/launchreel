@@ -366,3 +366,40 @@ describe('narrationBudgetAdvisories', () => {
     expect(advisories[0]).toContain('5 over');
   });
 });
+
+describe('ナレーション行の重なり', () => {
+  it('モデルが提案したatSecでも、前の行が終わるまで後ろへ押し出す', () => {
+    const reel: Reel = {
+      version: 'launchreel/1',
+      title: 't',
+      fps: 30,
+      shots: [
+        { id: 's1', kind: 'terminal', durationSec: 10 },
+        { id: 's2', kind: 'terminal', durationSec: 10 },
+      ],
+      narration: [
+        { id: 'n1', shotId: 's1', text: 'one', atSec: 1 },
+        // Overlaps n1 within the same shot, and n3 overlaps across the shot boundary.
+        { id: 'n2', shotId: 's1', text: 'two', atSec: 2 },
+        { id: 'n3', shotId: 's2', text: 'three', atSec: 3 },
+      ],
+      hitPoints: [],
+    } as unknown as Reel;
+
+    const measured = new Map([
+      ['n1', 4],
+      ['n2', 4],
+      ['n3', 4],
+    ]);
+    const { report } = fitReel(reel, { measured });
+    const at = new Map(report.lines.map((l) => [l.lineId, l.atSec]));
+
+    expect(at.get('n1')).toBe(1);
+    expect(at.get('n2')).toBe(5.5);
+    expect(at.get('n3')).toBe(10);
+    for (const line of report.lines) {
+      const others = report.lines.filter((o) => o.lineId !== line.lineId && o.atSec > line.atSec);
+      for (const later of others) expect(later.atSec).toBeGreaterThanOrEqual(line.atSec + line.speechSec);
+    }
+  });
+});
