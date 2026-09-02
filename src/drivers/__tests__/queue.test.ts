@@ -104,3 +104,29 @@ describe('submitRequest', () => {
     ).rejects.toThrow(/HTTP 503/);
   });
 });
+
+describe('progress reporting', () => {
+  it('reports a wait through a caller-supplied onRetry rather than stderr', async () => {
+    const seen: string[] = [];
+    const write = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    let polls = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      if (String(input).endsWith('/requests')) return fakeResponse({ ok: true, status: 200, body: { request_id: 'r1', status: 'queued' } });
+      polls += 1;
+      return polls < 3
+        ? fakeResponse({ ok: true, status: 200, body: { request_id: 'r1', status: 'queued' } })
+        : fakeResponse({ ok: true, status: 200, body: { request_id: 'r1', status: 'success', outcome: { ok: true } } });
+    });
+
+    const outcome = await submitRequest('m', {}, {
+      pollIntervalMs: 1,
+      pollTimeoutMs: 5_000,
+      onRetry: (_a, _w, reason) => seen.push(reason),
+    });
+
+    expect(outcome.outcome).toEqual({ ok: true });
+    expect(seen).toEqual([]);
+    expect(write).not.toHaveBeenCalled();
+    write.mockRestore();
+  });
+});

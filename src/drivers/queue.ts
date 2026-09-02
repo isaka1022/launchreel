@@ -20,6 +20,19 @@ const DEFAULT_POLL_TIMEOUT_MS = 5 * 60_000;
  */
 const DEFAULT_MAX_RESUBMITS = 2;
 const RETRYABLE_STATUSES = new Set([429, 503]);
+/** How long a request may sit in the queue before the wait is worth mentioning. */
+const HEARTBEAT_AFTER_MS = 30_000;
+
+/**
+ * Every wait here is minutes long, so a driver that reports nothing looks like a hung CLI — which
+ * is what a stalled TTS request looked like before: fifteen silent minutes, then an error. Goes to
+ * stderr so it never lands in the output a caller is parsing. Callers with their own reporting
+ * pass `onRetry` and this is not used.
+ */
+function reportToStderr(_attempt: number, waitMs: number, reason: string): void {
+  const wait = waitMs > 0 ? ` — retrying in ${Math.round(waitMs / 1000)}s` : '';
+  process.stderr.write(`queue: ${reason}${wait}\n`);
+}
 
 export type QueueStatus = 'success' | 'failed' | 'queued' | 'processing' | 'cancelled';
 
@@ -57,18 +70,19 @@ export async function submitRequest(
   const key = readGmiKey();
 
   const maxResubmits = options.maxResubmits ?? DEFAULT_MAX_RESUBMITS;
+  const reporting: QueueOptions = { ...options, onRetry: options.onRetry ?? reportToStderr };
 
   for (let resubmit = 0; ; resubmit++) {
-    const submitted = await postWithRetry(baseUrl, key, { model, payload }, options);
+    const submitted = await postWithRetry(baseUrl, key, { model, payload }, reporting);
     if (submitted.status === 'success') return { requestId: submitted.request_id, outcome: submitted.outcome };
     if (submitted.status === 'failed') throw new Error(queueErrorMessage(submitted));
 
     try {
-      return await pollUntilSettled(baseUrl, key, submitted.request_id, options);
+      return await pollUntilSettled(baseUrl, key, submitted.request_id, reporting);
     } catch (err) {
       if (!(err instanceof QueueStalledError) || resubmit >= maxResubmits) throw err;
       const waitMs = backoffMs(resubmit, options.initialBackoffMs ?? DEFAULT_INITIAL_BACKOFF_MS, options.maxBackoffMs ?? DEFAULT_MAX_BACKOFF_MS);
-      options.onRetry?.(resubmit + 1, waitMs, err.message);
+      reporting.onRetry?.(resubmit + 1, waitMs, err.message);
       await sleep(waitMs);
     }
   }
@@ -130,8 +144,14 @@ async function pollUntilSettled(
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const pollTimeoutMs = options.pollTimeoutMs ?? DEFAULT_POLL_TIMEOUT_MS;
   const deadline = Date.now() + pollTimeoutMs;
+  let nextHeartbeat = Date.now() + HEARTBEAT_AFTER_MS;
 
   for (;;) {
+    if (Date.now() >= nextHeartbeat) {
+      nextHeartbeat = Date.now() + HEARTBEAT_AFTER_MS;
+      const leftSec = Math.round((deadline - Date.now()) / 1000);
+      options.onRetry?.(0, 0, `still waiting on ${requestId} (${leftSec}s before it is resubmitted)`);
+    }
     if (Date.now() >= deadline) {
       throw new QueueStalledError(`GMI queue request ${requestId} did not settle within ${pollTimeoutMs}ms`);
     }
