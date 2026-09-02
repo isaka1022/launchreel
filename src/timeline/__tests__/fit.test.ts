@@ -58,7 +58,7 @@ describe('fitReel', () => {
     expect(byShotId.get('s1')?.durationSec).toBe(3); // fits: 収まるので据え置き
     expect(byShotId.get('s2')?.durationSec).toBeCloseTo(3.6, 5); // extended: neededまで伸びる
     expect(byShotId.get('s3')?.durationSec).toBe(10); // needs-rewrite: maxShotSecで頭打ち
-    expect(byShotId.get('s4')?.durationSec).toBe(3); // ナレーション無しのカードは読む時間(1語=3s floor)まで詰まる
+    expect(byShotId.get('s4')?.durationSec).toBe(5.5); // 読む時間(1語=3s floor) + 最終カードの余韻2.5s
 
     const l1 = report.lines.find((l) => l.lineId === 'l1');
     const l2 = report.lines.find((l) => l.lineId === 'l2');
@@ -75,8 +75,8 @@ describe('fitReel', () => {
 
     // hit=5は元タイムラインでs3の開始位置 → 新しいs3の開始位置(6.6)にスナップする
     expect(reel.hitPoints[0]).toBeCloseTo(6.6, 5);
-    // hit=9は元タイムラインでs4の50%地点 → 新しいs4区間([16.6, 19.6])の50%地点(18.1)に追随する
-    expect(reel.hitPoints[1]).toBeCloseTo(18.1, 5);
+    // hit=9は元タイムラインでs4の50%地点 → 新しいs4区間([16.6, 22.1])の50%地点(19.35)に追随する
+    expect(reel.hitPoints[1]).toBeCloseTo(19.35, 5);
   });
 
   it('入力のReelを変更しない', () => {

@@ -105,16 +105,16 @@ describe('narrationFilterChain', () => {
 });
 
 describe('musicFilterChain', () => {
-  it('総尺にトリム/パッドし、頭と尻をフェードする', () => {
-    const chain = musicFilterChain(5, 30, 1.5);
+  it('総尺にトリム/パッドし、頭と尻を別々の長さでフェードする', () => {
+    const chain = musicFilterChain(5, 30, { inSec: 1.5, outSec: 2.5 });
     expect(chain.filter).toContain('apad=whole_dur=30.000s');
     expect(chain.filter).toContain('atrim=0:30.000');
     expect(chain.filter).toContain('afade=t=in:st=0:d=1.500');
-    expect(chain.filter).toContain('afade=t=out:st=28.500:d=1.500');
+    expect(chain.filter).toContain('afade=t=out:st=27.500:d=2.500');
   });
 
   it('曲より総尺が短い場合はフェード長を総尺の半分に切り詰める', () => {
-    const chain = musicFilterChain(5, 2, 1.5);
+    const chain = musicFilterChain(5, 2, { inSec: 1.5, outSec: 1.5 });
     expect(chain.filter).toContain('d=1.000');
   });
 });
@@ -143,7 +143,7 @@ describe('crossfadedMusicFilterChain', () => {
         { inputIndex: 5, durationSec: 40 },
       ],
       100,
-      1.5,
+      { inSec: 1.5, outSec: 1.5 },
       1.5,
     );
 
@@ -162,7 +162,7 @@ describe('crossfadedMusicFilterChain', () => {
         { inputIndex: 5, durationSec: 40 },
       ],
       42,
-      1.5,
+      { inSec: 1.5, outSec: 1.5 },
       1.5,
     );
     expect(chain.filter).toContain('acrossfade=d=1.000');

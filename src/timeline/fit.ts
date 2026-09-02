@@ -137,6 +137,10 @@ export function fitReel(reel: Reel, options: FitOptions = {}): { reel: Reel; rep
       lineFits.push(lineFit);
     }
 
+    // The last card stays up after the last word so the music can settle instead of being cut off
+    // mid-bar; footage ending the reel has its own motion to carry that.
+    if (shot === reel.shots[reel.shots.length - 1] && shot.kind === 'card') durationSec += OUTRO_HOLD_SEC;
+
     newShots.push({ ...shot, durationSec });
     shotFits.push({ shotId: shot.id, originalDurationSec: shot.durationSec, durationSec, holdSec });
     newSpanByShotId.set(shot.id, { shotId: shot.id, start: shotStart, end: shotStart + durationSec });
@@ -154,6 +158,9 @@ export function fitReel(reel: Reel, options: FitOptions = {}): { reel: Reel; rep
   const report: FitReport = { shots: shotFits, lines: lineFits, totalDurationSec: masterCursor, needsRewrite };
   return { reel: newReel, report };
 }
+
+/** Music tail after the final line, when the reel closes on a card. Matches the assembler's fade-out. */
+export const OUTRO_HOLD_SEC = 2.5;
 
 /** Floor for a card with almost nothing on it; below this a card flashes rather than reads. */
 const CARD_MIN_SEC = 3;

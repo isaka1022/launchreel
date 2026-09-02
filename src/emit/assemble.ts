@@ -6,6 +6,7 @@ import { toSrt, type SubtitleCue } from './subtitles.js';
 import { probeDurationSec, probeStreamDurationSec } from '../drivers/probe.js';
 import { captionBand, renderCaption, type CaptionPosition } from '../render/caption.js';
 import { DEFAULT_BACKGROUND } from '../render/card.js';
+import { OUTRO_HOLD_SEC } from '../timeline/fit.js';
 import { shotSpans, type Reel, type ShotSpan } from '../timeline/schema.js';
 import type { SynthesizedLine } from '../order/speech.js';
 
@@ -21,7 +22,9 @@ const DEFAULT_FPS = 30;
 const DEFAULT_WIDTH = 1920;
 const DEFAULT_HEIGHT = 1080;
 const DEFAULT_XFADE_SEC = 0.25;
-const DEFAULT_MUSIC_FADE_SEC = 1.5;
+/** Fade-in at the head; the fade-out at the tail spans the outro hold fit.ts leaves after the last line. */
+const DEFAULT_MUSIC_FADE_IN_SEC = 1.5;
+const DEFAULT_MUSIC_FADE_OUT_SEC = OUTRO_HOLD_SEC;
 /** Overlap where one track hands over to the next. Long enough to read as a change, short enough to stay on the cut. */
 const DEFAULT_MUSIC_CROSSFADE_SEC = 1.5;
 const MIN_XFADE_SEC = 0.02;
@@ -218,16 +221,27 @@ export function narrationFilterChain(inputs: NarrationInput[]): FilterChain {
 export function musicFilterChain(
   inputIndex: number,
   targetDurationSec: number,
-  fadeSec: number,
+  fades: MusicFades,
   bedGain?: string,
 ): FilterChain {
-  const fade = Math.max(0, Math.min(fadeSec, targetDurationSec / 2));
   const level = bedGain === undefined ? '' : `${bedGain},`;
   const filter =
     `[${inputIndex}:a]aformat=sample_rates=${AUDIO_SAMPLE_RATE}:channel_layouts=stereo,${level}` +
     `apad=whole_dur=${targetDurationSec.toFixed(3)}s,atrim=0:${targetDurationSec.toFixed(3)},` +
-    `afade=t=in:st=0:d=${fade.toFixed(3)},afade=t=out:st=${(targetDurationSec - fade).toFixed(3)}:d=${fade.toFixed(3)}[musicraw]`;
+    `${fadeFilters(targetDurationSec, fades)}[musicraw]`;
   return { filter, label: 'musicraw' };
+}
+
+export interface MusicFades {
+  inSec: number;
+  outSec: number;
+}
+
+/** Head and tail fades, each clamped so the two never overlap on a short reel. */
+function fadeFilters(targetDurationSec: number, fades: MusicFades): string {
+  const fadeIn = Math.max(0, Math.min(fades.inSec, targetDurationSec / 2));
+  const fadeOut = Math.max(0, Math.min(fades.outSec, targetDurationSec / 2));
+  return `afade=t=in:st=0:d=${fadeIn.toFixed(3)},afade=t=out:st=${(targetDurationSec - fadeOut).toFixed(3)}:d=${fadeOut.toFixed(3)}`;
 }
 
 export interface MusicInput {
@@ -245,7 +259,7 @@ export interface MusicInput {
 export function crossfadedMusicFilterChain(
   inputs: MusicInput[],
   targetDurationSec: number,
-  fadeSec: number,
+  fades: MusicFades,
   crossfadeSec: number,
   bedGains: string[] = [],
 ): FilterChain {
@@ -268,10 +282,9 @@ export function crossfadedMusicFilterChain(
     cur = next;
   }
 
-  const fade = Math.max(0, Math.min(fadeSec, targetDurationSec / 2));
   parts.push(
     `[${cur}]apad=whole_dur=${targetDurationSec.toFixed(3)}s,atrim=0:${targetDurationSec.toFixed(3)},` +
-      `afade=t=in:st=0:d=${fade.toFixed(3)},afade=t=out:st=${(targetDurationSec - fade).toFixed(3)}:d=${fade.toFixed(3)}[musicraw]`,
+      `${fadeFilters(targetDurationSec, fades)}[musicraw]`,
   );
   return { filter: parts.join(';'), label: 'musicraw' };
 }
@@ -405,9 +418,10 @@ function buildMusicChain(
   bedGains: string[],
 ): FilterChain | undefined {
   if (startSecs.length === 0) return undefined;
-  if (startSecs.length === 1) return musicFilterChain(inputBase, totalSec, DEFAULT_MUSIC_FADE_SEC, bedGains[0]);
+  const fades = { inSec: DEFAULT_MUSIC_FADE_IN_SEC, outSec: DEFAULT_MUSIC_FADE_OUT_SEC };
+  if (startSecs.length === 1) return musicFilterChain(inputBase, totalSec, fades, bedGains[0]);
   const inputs = musicSpans(startSecs, totalSec).map((durationSec, i) => ({ inputIndex: inputBase + i, durationSec }));
-  return crossfadedMusicFilterChain(inputs, totalSec, DEFAULT_MUSIC_FADE_SEC, DEFAULT_MUSIC_CROSSFADE_SEC, bedGains);
+  return crossfadedMusicFilterChain(inputs, totalSec, fades, DEFAULT_MUSIC_CROSSFADE_SEC, bedGains);
 }
 
 /**
