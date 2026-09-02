@@ -12,8 +12,8 @@ soundtrack, title cards, cuts.
 git clone https://github.com/isaka1022/launchreel && cd launchreel
 npm install && npm run build
 
-npx launchreel build examples/pitch --offline    # 99.1s product video from a pitch + 5 recordings
-npx launchreel build examples/self  --offline    # 36.97s reel from a single recording
+npx launchreel build examples/pitch --offline    # 88.87s product video from a pitch + 5 recordings
+npx launchreel build examples/self  --offline    # 41.0s reel from a single recording
 ```
 
 No API key, no network, no Python. Both replay committed fixtures and write `reel.mp4`,
@@ -31,16 +31,20 @@ So LaunchReel never asks the model to hit a mark. It generates candidates, measu
 with librosa, and moves the cuts onto the beats it actually finds:
 
 ```
-score: 3 candidates for 0.0-71.79s
-  track 1    45.73s   does not cover   152.0 BPM    6/10 hits
-  track 2    71.84s   covers           129.2 BPM   10/10 hits   <- selected
-  track 3    54.82s   does not cover   123.0 BPM    8/10 hits
+score: 3 candidates for 0.0-92.63s
+  track 1   145.18s   covers           136.0 BPM   16/23 hits
+  track 2   147.54s   covers           129.2 BPM   23/23 hits   <- selected
+  track 3    35.32s   does not cover    97.5 BPM   10/23 hits
 ```
 
-Tracks 1 and 3 were rejected because they stop before the segment does, and cuts that land
-beautifully from a track that has already ended are worth nothing. Length is not a request either
-— those three tracks came from one brief and measured **45.73s, 71.84s and 54.82s**, so coverage
-is measured rather than assumed from the prompt.
+Track 3 was rejected before it was judged on fit at all: it stops before the segment does, and
+cuts that land beautifully from a track that has already ended are worth nothing. Length is not a
+request either — those three came from one brief and measured **145.18s, 147.54s and 35.32s**, so
+coverage is measured rather than assumed from the prompt.
+
+Tracks 1 and 2 both cover it, and that is where the measurement earns its keep: 16 of the reel's
+23 cuts find a beat in one, and all 23 in the other. Every cut is scored, not the handful the
+model thought to mark — which is what makes the gap between two candidates mean something.
 
 When a cut does move, the neighbouring shot absorbs exactly the opposite shift, so **the total
 duration never changes.** Cuts already inside the 120 ms tolerance are left alone — moving a cut
@@ -239,7 +243,7 @@ prints the value.
   reports the split every run rather than hiding it.
 - **The narration overruns the character budget it is given.** M3 is told how many characters the
   target duration affords and can write past it anyway. The refit absorbs it; the measured mp4s
-  come out at 99.1s and 36.97s. The report says which rung closed each line; nothing stops the
+  come out at 88.87s and 41.0s. The report says which rung closed each line; nothing stops the
   model writing long.
 - **Speech 2.8 returned 503 for stretches of MiniMax Week.** Retries with backoff are built in,
   and `--provider system` narrates with the macOS voice when it is down.
