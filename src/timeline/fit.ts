@@ -488,3 +488,26 @@ function overlapSec(fromSec: number, toSec: number, spans: TimeSpan[]): number {
   }
   return sum;
 }
+
+/**
+ * Cards that carry more than one line of narration. A card is punctuation between chapters, so a
+ * line spoken over one is a claim with no footage behind it — and because the refit stretches a
+ * shot to hold whatever is said on it, stacking lines on a card turns a title screen into the
+ * longest shot in the reel. Advisory rather than a failure: such a reel still builds.
+ */
+export function cardNarrationAdvisories(reel: Reel): string[] {
+  const cardIds = new Set(reel.shots.filter((shot) => shot.kind === 'card').map((shot) => shot.id));
+  const linesByShot = new Map<string, string[]>();
+  for (const line of reel.narration) {
+    if (!cardIds.has(line.shotId)) continue;
+    linesByShot.set(line.shotId, [...(linesByShot.get(line.shotId) ?? []), line.id]);
+  }
+
+  return [...linesByShot]
+    .filter(([, lines]) => lines.length > 1)
+    .map(
+      ([shotId, lines]) =>
+        `card "${shotId}" carries ${lines.length} narration lines (${lines.join(', ')}) — a card holds at most one. ` +
+        'Move the rest onto shots that show the footage backing them up, or cut them.',
+    );
+}

@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
+  cardNarrationAdvisories,
   compressToFit,
   fitReel,
   motionBreakdown,
@@ -410,5 +411,37 @@ describe('cardReadSec', () => {
   it('語数で読む時間を出し、記号だけのトークンは数えない', () => {
     expect(cardReadSec({ title: 'S1' })).toBe(3);
     expect(cardReadSec({ title: 'Two artifacts, not one', subtitle: 'reel.mp4 + reel.otio' })).toBeCloseTo(1.5 + 6 * 0.3, 5);
+  });
+});
+
+describe('cardNarrationAdvisories', () => {
+  const reel = (): Reel => ({
+    version: 'launchreel/1',
+    title: 'demo',
+    fps: 30,
+    shots: [
+      { id: 's1', kind: 'card', label: 'chapter', durationSec: 4, card: { title: 'Chapter' } },
+      { id: 's2', kind: 'terminal', label: 'run', durationSec: 6, evidenceRange: [0, 6] },
+    ],
+    narration: [],
+    hitPoints: [],
+  });
+
+  it('says nothing about a card holding a single line', () => {
+    const r = reel();
+    r.narration = [{ id: 'n1', shotId: 's1', text: 'one' }];
+    expect(cardNarrationAdvisories(r)).toEqual([]);
+  });
+
+  it('names the card, the count and the lines when a card carries the argument', () => {
+    const r = reel();
+    r.narration = [
+      { id: 'n1', shotId: 's1', text: 'one' },
+      { id: 'n2', shotId: 's1', text: 'two' },
+      { id: 'n3', shotId: 's2', text: 'three' },
+    ];
+    const [advisory, ...rest] = cardNarrationAdvisories(r);
+    expect(rest).toEqual([]);
+    expect(advisory).toContain('card "s1" carries 2 narration lines (n1, n2)');
   });
 });

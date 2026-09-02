@@ -102,6 +102,8 @@ function buildSystemPrompt(options: BuildMessagesOptions): string {
     'A recording is always shorter than the reel made from it. Fill the difference with "card" shots, never by holding a terminal on its last frame: ' +
       'a card standing still reads as punctuation, a frozen terminal reads as a broken video.',
     'Keep cards a minority of the shots, and never place two back to back.',
+    'A card carries at most one line of narration — the shot is stretched to hold whatever is said on it, so a card ' +
+      'the narration talks over becomes the longest shot in the reel.',
     'If the previous call failed validation, fix exactly the problems listed and call the tool again.',
   ].join('\n');
 }
@@ -188,6 +190,9 @@ function buildLongFormSystemPrompt(footage: FootageItem[], options: BuildMessage
     '',
     'Put a "card" shot at each chapter boundary: it names the section that follows and carries the cut between recordings.',
     'Never place two cards back to back, and keep cards a minority of the shots — they are punctuation, not content.',
+    'A card carries at most one line of narration, and the closing card is not where the argument goes. The claims are ' +
+      'made over the footage that demonstrates them; a card the narration keeps talking over stops being punctuation ' +
+      'and becomes the longest shot in the reel, because the shot is stretched to hold whatever is said on it.',
     'Where the footage does not show something, do not stretch unrelated footage over it — use a card instead.',
     'If the previous call failed validation, fix exactly the problems listed and call the tool again.',
   ].join('\n');
