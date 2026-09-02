@@ -81,6 +81,7 @@ export function fitReel(reel: Reel, options: FitOptions = {}): { reel: Reel; rep
     if (list) list.push(line);
     else linesByShot.set(line.shotId, [line]);
   }
+  for (const list of linesByShot.values()) list.sort((a, b) => (a.atSec ?? 0) - (b.atSec ?? 0));
 
   const newShots: Shot[] = [];
   const shotFits: ShotFit[] = [];
@@ -97,12 +98,14 @@ export function fitReel(reel: Reel, options: FitOptions = {}): { reel: Reel; rep
     const speechSum = calc.reduce((sum, c) => sum + c.speechSec, 0);
     const needed = calc.length > 0 ? padSec * 2 + speechSum + lineGapSec * (calc.length - 1) : 0;
 
-    let durationSec = shot.durationSec;
+    // A card only needs to be up for as long as it takes to read, or to say its narration. The
+    // model tends to give every shot the same few seconds, and on a card that is dead air.
+    let durationSec = shot.kind === 'card' && shot.card ? cardReadSec(shot.card) : shot.durationSec;
     let tier: FitTier = 'fits';
     let budgetSecTotal = 0;
 
     if (calc.length > 0) {
-      if (needed <= shot.durationSec) {
+      if (needed <= durationSec) {
         tier = 'fits';
       } else if (needed <= maxShotSec) {
         tier = 'extended';
@@ -120,11 +123,10 @@ export function fitReel(reel: Reel, options: FitOptions = {}): { reel: Reel; rep
 
     const shotStart = masterCursor;
     for (const { line, speechSec } of calc) {
-      // The model proposes when a line should land, but only the measured speech knows whether that
-      // proposal leaves room for the line before it. A proposal is therefore a desired earliest
-      // start, held back to wherever the previous line actually finished.
-      const desired = line.atSec ?? Math.max(shotStart + padSec, narrationFreeSec);
-      const atSec = Math.max(desired, narrationFreeSec);
+      // The model decides which shot a line belongs to; where it lands inside that shot is decided
+      // here from the measured speech. Its proposed atSec is only an ordering hint — as a time it
+      // refers to the plan's timeline, which this loop is in the middle of replacing.
+      const atSec = Math.max(shotStart + padSec, narrationFreeSec);
       narrationFreeSec = atSec + speechSec + lineGapSec;
 
       const lineFit: LineFit = { lineId: line.id, shotId: shot.id, speechSec, atSec, tier };
@@ -151,6 +153,18 @@ export function fitReel(reel: Reel, options: FitOptions = {}): { reel: Reel; rep
   const newReel: Reel = { ...reel, shots: newShots, hitPoints: newHitPoints };
   const report: FitReport = { shots: shotFits, lines: lineFits, totalDurationSec: masterCursor, needsRewrite };
   return { reel: newReel, report };
+}
+
+/** Floor for a card with almost nothing on it; below this a card flashes rather than reads. */
+const CARD_MIN_SEC = 3;
+const CARD_BASE_SEC = 1.5;
+const CARD_SEC_PER_WORD = 0.3;
+
+/** How long a viewer needs to read a card: a settle-in, plus a beat per word across all its text. */
+export function cardReadSec(card: { title: string; subtitle?: string | undefined; command?: string | undefined }): number {
+  const text = [card.title, card.subtitle ?? '', card.command ?? ''].join(' ');
+  const words = text.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
+  return Math.max(CARD_MIN_SEC, CARD_BASE_SEC + words * CARD_SEC_PER_WORD);
 }
 
 /** First span containing `hit`; falls back to the last span for a hit at (or past) the end. */
