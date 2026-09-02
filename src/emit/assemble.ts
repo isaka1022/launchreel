@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { listFfmpegFilters, runFfmpeg, runFfmpegCapture } from '../drivers/ffmpeg.js';
 import { toSrt, type SubtitleCue } from './subtitles.js';
-import { probeDurationSec } from '../drivers/probe.js';
+import { probeDurationSec, probeStreamDurationSec } from '../drivers/probe.js';
 import { renderCaption } from '../render/caption.js';
 import { DEFAULT_BACKGROUND } from '../render/card.js';
 import { shotSpans, type Reel, type ShotSpan } from '../timeline/schema.js';
@@ -290,19 +290,40 @@ export function duckAndMix(
   narrLabel: string | undefined,
   hasSidechain: boolean,
   narrationIntervals: NarrationInterval[],
+  totalDurationSec: number,
 ): FilterChain {
   if (musicLabel === undefined && narrLabel === undefined) return { filter: '' };
-  if (musicLabel === undefined) return { filter: '', label: narrLabel };
-  if (narrLabel === undefined) return { filter: '', label: musicLabel };
 
   const parts: string[] = [];
+  const busLabel = mixedBusLabel(musicLabel, narrLabel, hasSidechain, narrationIntervals, totalDurationSec, parts);
+  // A reel that ends on a card outlasts its last spoken line, so the bus is padded to the full
+  // length: an audio stream that stops short leaves the closing shot in silence.
+  parts.push(`[${busLabel}]apad=whole_dur=${totalDurationSec.toFixed(3)}s[audiobus]`);
+  return { filter: parts.join(';'), label: 'audiobus' };
+}
+
+/** Appends the ducking and mixing stages to `parts` and names the pad the audio ends up on. */
+function mixedBusLabel(
+  musicLabel: string | undefined,
+  narrLabel: string | undefined,
+  hasSidechain: boolean,
+  narrationIntervals: NarrationInterval[],
+  totalDurationSec: number,
+  parts: string[],
+): string {
+  if (musicLabel === undefined) return narrLabel!;
+  if (narrLabel === undefined) return musicLabel;
+
   let duckedLabel = musicLabel;
   // A filtergraph pad can only be consumed once, and sidechaincompress needs the narration bus
   // both as its keying input and again in the final mix — split it into two copies for that path.
   let mixNarrLabel = narrLabel;
   if (hasSidechain) {
     duckedLabel = 'musicducked';
-    parts.push(`[${narrLabel}]asplit=2[narrkey][narrmixin]`);
+    parts.push(`[${narrLabel}]asplit=2[narrkeyraw][narrmixin]`);
+    // sidechaincompress stops when either of its inputs does, so an unpadded key ends the music
+    // with the last spoken line and leaves the closing shot in silence.
+    parts.push(`[narrkeyraw]apad=whole_dur=${totalDurationSec.toFixed(3)}s[narrkey]`);
     parts.push(`[${musicLabel}][narrkey]sidechaincompress=threshold=0.06:ratio=8:attack=5:release=400:makeup=1[${duckedLabel}]`);
     mixNarrLabel = 'narrmixin';
   } else if (narrationIntervals.length > 0) {
@@ -311,7 +332,7 @@ export function duckAndMix(
     parts.push(`[${musicLabel}]volume=volume=0.35:enable='${expr}'[${duckedLabel}]`);
   }
   parts.push(`[${duckedLabel}][${mixNarrLabel}]amix=inputs=2:duration=longest:normalize=0[mixedaudio]`);
-  return { filter: parts.join(';'), label: 'mixedaudio' };
+  return 'mixedaudio';
 }
 
 export interface LoudnormStats {
@@ -475,7 +496,7 @@ export async function assembleReel(reel: Reel, options: AssembleOptions): Promis
   const bedGains = await Promise.all(musicPlacements.map(async (p) => musicBedGainFilter(await measureIntegratedLufs(p.path))));
   const musicChain = buildMusicChain(musicInputBase, musicStarts, totalSec, bedGains);
   const narrationIntervals = narrationResolved.map((n) => ({ start: n.atSec, end: n.atSec + n.durationSec }));
-  const mix = duckAndMix(musicChain?.label, narrChain.label, hasSidechain, narrationIntervals);
+  const mix = duckAndMix(musicChain?.label, narrChain.label, hasSidechain, narrationIntervals, totalSec);
 
   const audioFilterComplex = [narrChain.filter, musicChain?.filter ?? '', mix.filter].filter((part) => part.length > 0).join(';');
   const filterComplex = [videoChain.filter, captionChain.filter, audioFilterComplex].filter((part) => part.length > 0).join(';');
@@ -539,6 +560,17 @@ export async function assembleReel(reel: Reel, options: AssembleOptions): Promis
     }
 
     const durationSec = await probeDurationSec(options.outPath);
+    // The container reports its longest stream, so an audio bus that ends early hides behind a
+    // correct-looking total — which is exactly how the reel once ended in six silent seconds.
+    if (mix.label !== undefined) {
+      const audioSec = await probeStreamDurationSec(options.outPath, 'a:0');
+      if (durationSec - audioSec > DURATION_TOLERANCE_SEC) {
+        throw new Error(
+          `assembled audio runs ${audioSec.toFixed(2)}s against ${durationSec.toFixed(2)}s of picture — ` +
+            'something in the audio graph is ending early',
+        );
+      }
+    }
     if (Math.abs(durationSec - totalSec) > DURATION_TOLERANCE_SEC) {
       throw new Error(
         `assembled reel duration ${durationSec.toFixed(2)}s does not match the expected ${totalSec.toFixed(2)}s ` +

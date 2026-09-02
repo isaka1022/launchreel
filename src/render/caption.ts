@@ -14,9 +14,12 @@ import { estimateMaxChars, textElement, wrapBalanced } from './svg-text.js';
 
 const CAPTION_FONT = 'Arial, Hiragino Sans';
 const CAPTION_TEXT = '#f5f6fa';
-/** The card background at 78% — dark enough to hold white text over a bright terminal, still see-through. */
+/**
+ * The card background, opaque. A translucent plate lets whatever it covers show through just
+ * enough to read as a rendering fault rather than as a caption; and against a card, an opaque
+ * plate in this exact colour disappears into the background anyway.
+ */
 const CAPTION_BOX = '#111318';
-const CAPTION_BOX_OPACITY = 0.78;
 
 /** Fractions of the frame height: type size, gap from the bottom edge, padding inside the box. */
 const FONT_RATIO = 0.036;
@@ -48,7 +51,7 @@ export function buildCaptionSvg(text: string, layout: CaptionLayout): string {
 
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">`,
-    `<rect x="${boxX}" y="${boxY}" width="${boxWidth}" height="${boxHeight}" rx="${Math.round(fontSize * 0.35)}" fill="${CAPTION_BOX}" fill-opacity="${CAPTION_BOX_OPACITY}"/>`,
+    `<rect x="${boxX}" y="${boxY}" width="${boxWidth}" height="${boxHeight}" rx="${Math.round(fontSize * 0.35)}" fill="${CAPTION_BOX}"/>`,
     textElement({
       x: Math.round(width / 2),
       blockTop: boxY + paddingY,

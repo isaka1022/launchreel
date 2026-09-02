@@ -173,26 +173,39 @@ describe('duckAndMix', () => {
   const intervals = [{ start: 1, end: 3 }];
 
   it('音楽もナレーションも無ければ空', () => {
-    expect(duckAndMix(undefined, undefined, true, [])).toEqual({ filter: '' });
+    expect(duckAndMix(undefined, undefined, true, [], 30)).toEqual({ filter: '' });
   });
 
-  it('音楽のみならダッキングせずそのまま返す', () => {
-    expect(duckAndMix('musicraw', undefined, true, [])).toEqual({ filter: '', label: 'musicraw' });
+  it('音楽のみならダッキングせず、全尺までパディングして返す', () => {
+    expect(duckAndMix('musicraw', undefined, true, [], 30)).toEqual({
+      filter: '[musicraw]apad=whole_dur=30.000s[audiobus]',
+      label: 'audiobus',
+    });
   });
 
-  it('ナレーションのみならそのまま返す', () => {
-    expect(duckAndMix(undefined, 'narrmix', true, intervals)).toEqual({ filter: '', label: 'narrmix' });
+  it('ナレーションのみでも最後の行より先まで画が続くので全尺までパディングする', () => {
+    expect(duckAndMix(undefined, 'narrmix', true, intervals, 30)).toEqual({
+      filter: '[narrmix]apad=whole_dur=30.000s[audiobus]',
+      label: 'audiobus',
+    });
   });
 
   it('sidechaincompressが使えるときはそれでダッキングする', () => {
-    const chain = duckAndMix('musicraw', 'narrmix', true, intervals);
+    const chain = duckAndMix('musicraw', 'narrmix', true, intervals, 30);
     expect(chain.filter).toContain('sidechaincompress');
     expect(chain.filter).toContain('amix=inputs=2:duration=longest:normalize=0[mixedaudio]');
-    expect(chain.label).toBe('mixedaudio');
+    expect(chain.label).toBe('audiobus');
+  });
+
+  it('キー入力を全尺までパディングし、最終行のあとも音楽を鳴らし続ける', () => {
+    const chain = duckAndMix('musicraw', 'narrmix', true, intervals, 30);
+
+    expect(chain.filter).toContain('[narrkeyraw]apad=whole_dur=30.000s[narrkey]');
+    expect(chain.filter.indexOf('apad')).toBeLessThan(chain.filter.indexOf('sidechaincompress'));
   });
 
   it('sidechaincompressが無ければvolumeエンベロープにフォールバックする', () => {
-    const chain = duckAndMix('musicraw', 'narrmix', false, intervals);
+    const chain = duckAndMix('musicraw', 'narrmix', false, intervals, 30);
     expect(chain.filter).not.toContain('sidechaincompress');
     expect(chain.filter).toContain("volume=volume=0.35:enable='between(t,1.000,3.000)'");
   });

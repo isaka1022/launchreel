@@ -30,6 +30,22 @@ export async function probeDurationSec(path: string): Promise<number> {
   return seconds;
 }
 
+/**
+ * Length of one stream rather than of the container. The two differ when a filter cuts the audio
+ * short, which the container duration hides because it reports the longest stream.
+ */
+export async function probeStreamDurationSec(path: string, stream: 'v:0' | 'a:0'): Promise<number> {
+  const stdout = await runFfprobe(
+    ['-v', 'error', '-select_streams', stream, '-show_entries', 'stream=duration', '-of', 'default=noprint_wrappers=1:nokey=1', path],
+    path,
+  );
+  const seconds = Number(stdout.trim());
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    throw new Error(`ffprobe returned an unreadable ${stream} duration for ${path}: "${stdout.trim()}"`);
+  }
+  return seconds;
+}
+
 export interface VideoDimensions {
   width: number;
   height: number;
